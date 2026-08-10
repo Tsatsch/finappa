@@ -1,0 +1,24 @@
+# Recurring transactions, checked daily and inserted once per month (spec §8.2).
+# day_of_month must be 1..28 so a rule never vanishes in February.
+# After editing this file, restart the container to pick up changes.
+
+- key: rent
+  label: Rent
+  amount: 1200.00
+  type: EXPENSE
+  category: Housing
+  day_of_month: 1
+
+# - key: salary
+#   label: Salary
+#   amount: 3500.00
+#   type: INCOME
+#   category: Salary
+#   day_of_month: 25
+#
+# - key: etf_savings_plan
+#   label: ETF savings plan
+#   amount: 300.00
+#   type: EXPENSE
+#   category: Investment
+#   day_of_month: 5
