@@ -11,7 +11,7 @@ def create_snapshot(db_path: str, snapshot_dir: str, at: datetime | None = None)
     snapshot_path = Path(snapshot_dir) / f"backup-{date_str}.db"
     conn = sqlite3.connect(db_path)
     try:
-        conn.execute(f"VACUUM INTO '{snapshot_path}'")
+        conn.execute("VACUUM INTO ?", (str(snapshot_path),))
     finally:
         conn.close()
     return snapshot_path
