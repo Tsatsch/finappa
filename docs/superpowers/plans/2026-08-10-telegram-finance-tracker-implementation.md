@@ -71,6 +71,10 @@ asyncio_mode = "auto"
 
 - [ ] **Step 2: Write `.gitignore`**
 
+Note: `data/`, `.env`, and `.superpowers/` already exist in `.gitignore` from
+earlier repo setup — merge rather than blindly overwrite if the file already
+has content beyond what's below.
+
 ```
 data/
 .env
@@ -79,6 +83,7 @@ __pycache__/
 .venv/
 *.egg-info/
 .pytest_cache/
+.superpowers/
 ```
 
 - [ ] **Step 3: Create `app/__init__.py` and `tests/__init__.py` (empty files)**
