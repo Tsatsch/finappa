@@ -23,10 +23,11 @@ async def recurring_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.bot_data["settings"]
     with session_factory() as session:
         fired = run_recurring_check(session, settings.timezone)
-    for rule in fired:
+        fired_values = [(rule.label, rule.amount_cents) for rule in fired]
+    for label, amount_cents in fired_values:
         await context.bot.send_message(
             chat_id=settings.allowed_telegram_user_id,
-            text=f"Recurring: logged {rule.label} ({format_cents(rule.amount_cents)}).",
+            text=f"Recurring: logged {label} ({format_cents(amount_cents)}).",
         )
 
 

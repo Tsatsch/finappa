@@ -1,7 +1,13 @@
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
+from cryptography.fernet import Fernet
 
 from app.config import Settings
-from app.main import build_application
+from app.db import Category, RecurringRule, get_sessionmaker, init_db, make_engine
+from app.main import backup_job, build_application, recurring_job
 
 
 @pytest.fixture
@@ -22,3 +28,109 @@ def test_build_application_wires_bot_data_and_jobs(settings, tmp_path):
 
     job_names = {job.name for job in application.job_queue.jobs()}
     assert {"recurring_check", "recurring_check_startup", "daily_backup"} <= job_names
+
+
+def _add_rule(session, key="rent", day_of_month=1, amount_cents=120000, active=True, label="Rent"):
+    category = session.query(Category).filter_by(name="Housing").one()
+    rule = RecurringRule(
+        key=key, label=label, amount_cents=amount_cents, type="EXPENSE",
+        category_id=category.id, day_of_month=day_of_month, active=active,
+    )
+    session.add(rule)
+    session.commit()
+    return rule
+
+
+async def test_recurring_job_sends_message_when_rule_fires(settings):
+    # day_of_month=1 always fires: today's local day-of-month is always >= 1,
+    # so this doesn't need to fake "now" the way tests/test_recurring.py does.
+    engine = make_engine(settings.db_path)
+    init_db(engine)
+    session_factory = get_sessionmaker(engine)
+    with session_factory() as session:
+        _add_rule(session, day_of_month=1, amount_cents=120000, label="Rent")
+
+    context = SimpleNamespace(
+        bot_data={"session_factory": session_factory, "settings": settings},
+        bot=AsyncMock(),
+    )
+
+    # Regression test: run_recurring_check commits internally, which (with
+    # SQLAlchemy's default expire_on_commit=True) expires all attributes on
+    # the RecurringRule objects it returns. Accessing rule.label/amount_cents
+    # after the `with session_factory()` block has closed must not raise
+    # DetachedInstanceError.
+    await recurring_job(context)
+
+    context.bot.send_message.assert_called_once()
+    _, kwargs = context.bot.send_message.call_args
+    assert kwargs["chat_id"] == settings.allowed_telegram_user_id
+    assert "Rent" in kwargs["text"]
+    assert "1.200,00" in kwargs["text"]
+
+
+async def test_recurring_job_no_message_when_nothing_fires(settings):
+    engine = make_engine(settings.db_path)
+    init_db(engine)
+    session_factory = get_sessionmaker(engine)
+    with session_factory() as session:
+        _add_rule(session, day_of_month=1, active=False)
+
+    context = SimpleNamespace(
+        bot_data={"session_factory": session_factory, "settings": settings},
+        bot=AsyncMock(),
+    )
+
+    await recurring_job(context)
+
+    context.bot.send_message.assert_not_called()
+
+
+async def test_backup_job_with_channel_sends_document_and_cleans_up(tmp_path, monkeypatch):
+    key = Fernet.generate_key().decode()
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:fake-token-for-tests")
+    monkeypatch.setenv("ALLOWED_TELEGRAM_USER_ID", "12345")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "finappa.db"))
+    monkeypatch.setenv("BACKUP_CHANNEL_ID", "999")
+    monkeypatch.setenv("BACKUP_ENCRYPTION_KEY", key)
+    settings_with_backup = Settings(_env_file=None)
+
+    engine = make_engine(settings_with_backup.db_path)
+    init_db(engine)
+
+    context = SimpleNamespace(
+        bot_data={"settings": settings_with_backup},
+        bot=AsyncMock(),
+    )
+
+    await backup_job(context)
+
+    context.bot.send_document.assert_called_once()
+    _, kwargs = context.bot.send_document.call_args
+    assert kwargs["chat_id"] == 999
+    assert kwargs["filename"].endswith(".db.enc")
+
+    snapshot_dir = Path(settings_with_backup.db_path).parent
+    leftover_enc_files = list(snapshot_dir.glob("*.enc"))
+    assert leftover_enc_files == []
+
+
+async def test_backup_job_without_channel_does_not_send_but_prunes(settings):
+    engine = make_engine(settings.db_path)
+    init_db(engine)
+
+    snapshot_dir = Path(settings.db_path).parent
+    for day in range(1, 11):
+        (snapshot_dir / f"backup-2000-01-{day:02d}.db").write_text("fake")
+
+    context = SimpleNamespace(
+        bot_data={"settings": settings},
+        bot=AsyncMock(),
+    )
+
+    await backup_job(context)
+
+    context.bot.send_document.assert_not_called()
+    remaining = sorted(p.name for p in snapshot_dir.glob("backup-*.db"))
+    assert len(remaining) == 7
