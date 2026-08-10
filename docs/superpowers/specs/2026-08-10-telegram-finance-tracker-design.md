@@ -355,12 +355,18 @@ Both registered on `JobQueue`. No cron, no HTTP endpoint, no shared secret.
 
 1. `VACUUM INTO '/app/data/backup-YYYY-MM-DD.db'`.
    **Not `cp`** — copying a live WAL-mode database yields a corrupt snapshot.
-2. Send the file to `BACKUP_CHANNEL_ID` via `send_document`, with a caption
-   carrying the date, row count, and file size.
-3. Prune local snapshots to the newest 7.
+2. Encrypt the snapshot with `cryptography.fernet.Fernet` using
+   `BACKUP_ENCRYPTION_KEY`, producing `backup-YYYY-MM-DD.db.enc` (§13.2).
+3. Send the encrypted file to `BACKUP_CHANNEL_ID` via `send_document`, with a
+   caption carrying the date, row count, and file size.
+4. Prune local snapshots to the newest 7 (the plaintext `.db` snapshots stay local
+   only; the `.enc` is deleted after a successful send).
 
 If `BACKUP_CHANNEL_ID` is unset, the local snapshot still runs and the send is
 skipped.
+
+Fernet reads the whole file into memory. At a few megabytes this is irrelevant; if
+the database ever reaches hundreds of megabytes, switch to chunked streaming.
 
 **Why Telegram, not Google Drive:** a Google service account has zero Drive storage
 quota. Uploading to a folder shared from a personal account fails with
@@ -418,6 +424,7 @@ examples.
 | `OPENAI_API_KEY` | — | required |
 | `OPENAI_MODEL` | `gpt-4o-mini` | |
 | `BACKUP_CHANNEL_ID` | none | negative int; backups are local-only if unset |
+| `BACKUP_ENCRYPTION_KEY` | — | required when `BACKUP_CHANNEL_ID` is set; urlsafe base64 Fernet key |
 | `TIMEZONE` | `Europe/Berlin` | month boundaries and job fire times |
 | `DB_PATH` | `/app/data/finappa.db` | |
 | `LOG_LEVEL` | `INFO` | |
@@ -471,7 +478,7 @@ pytest against a temporary SQLite file, with the OpenAI client stubbed at the
 | `test_analytics` | Refunds reduce expenses; net arithmetic; **a transaction at 00:30 local on the 1st falls in the correct month** (Berlin/UTC boundary). |
 | `test_recurring` | Running the check twice inserts one row; a rule whose day has not arrived does not fire; a missed day self-heals on the next run. |
 | `test_undo` | Removes all rows of the last message batch and only those; never removes recurring rows; no-op on an empty ledger. |
-| `test_backup` | `VACUUM INTO` produces a readable database; pruning keeps exactly the newest 7. |
+| `test_backup` | `VACUUM INTO` produces a readable database; encrypt→decrypt round-trips to a byte-identical, openable database; pruning keeps exactly the newest 7. |
 
 ## 12. AI tooling deliverables
 
@@ -485,8 +492,54 @@ pytest against a temporary SQLite file, with the OpenAI client stubbed at the
 - **`.cursor/rules/finappa.mdc`** — `alwaysApply: true`, pointing at AGENTS.md and
   restating the invariants.
 - **`.claude/skills/`** — `deploy`, `add-category`, `restore-backup`, `add-command`.
+  `restore-backup` must cover the full path: pull the `.enc` from the channel,
+  decrypt it with `BACKUP_ENCRYPTION_KEY`, verify it opens, swap it in, restart.
 
-## 13. Rejected, with reasons
+## 13. Security model
+
+### 13.1 Transport
+
+All traffic is outbound HTTPS — `api.telegram.org` and `api.openai.com`. Removing
+the webhook removed the need to *terminate* TLS, not TLS itself.
+
+The process opens **no listening sockets**. `docker-compose.yml` has no `ports:`
+key and must never gain one: Docker writes its own iptables rules that **bypass
+ufw**, so a published port is reachable even when the firewall is configured to
+deny it. This is recorded as a hard rule in AGENTS.md.
+
+### 13.2 What is exposed, and to whom
+
+| Party | Sees | Mitigation |
+|---|---|---|
+| Telegram | Every message, in plaintext. Bot chats are **never** end-to-end encrypted — Secret Chats do not work with bots. | None possible. Accepted. |
+| Telegram | The backup database dump | Fernet-encrypted before upload (§8.1) |
+| OpenAI | Transaction text sent for extraction | Not trained on by default; ~30-day abuse retention. Merchant names and amounts only. |
+| Anyone with the bot token | Everything the bot can see and do | `.env` gitignored; token never pasted anywhere |
+| Strangers who find the bot | Nothing. `filters.User` drops their updates before any handler runs — no reply, no `/help`. | — |
+
+The backup channel **must be private**. A public channel makes the entire
+financial database a public download.
+
+`BACKUP_ENCRYPTION_KEY` must be stored in a password manager. Losing it makes every
+remote backup unrecoverable; local snapshots stay in plaintext, so a VPS that is
+still alive is unaffected.
+
+### 13.3 Host hardening (README checklist)
+
+The VPS's SSH is the realistic attack surface, not the bot:
+
+- `PasswordAuthentication no`, key-only auth
+- `PermitRootLogin no`
+- `ufw default deny incoming`, allow 22 only
+- `unattended-upgrades` enabled
+- `chmod 700 ./data`
+
+### 13.4 Non-threats
+
+Prompt injection is out of scope: one whitelisted user authors every message that
+reaches the LLM.
+
+## 14. Rejected, with reasons
 
 | Rejected | Reason |
 |---|---|
