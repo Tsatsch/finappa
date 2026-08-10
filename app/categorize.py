@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.categories import CategoryName
 from app.db import Category, Merchant, Transaction
 
-FUZZY_CUTOFF = 0.55
+FUZZY_CUTOFF = 0.85
 
 
 class RecatError(Exception):

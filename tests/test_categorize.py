@@ -27,8 +27,9 @@ def test_fuzzy_match_overrides_llm_category(session):
     resolve_category(session, "Rewe", CategoryName.GROCERIES)
     session.commit()
 
-    # Slightly different spelling; the LLM guesses wrong this time.
-    merchant, category = resolve_category(session, "REWE Markt", CategoryName.DINING)
+    # Typo (doubled letter); the LLM guesses wrong this time.
+    # Verified: difflib.SequenceMatcher(None, "rewe", "rewwe").ratio() = 0.8889 > 0.85
+    merchant, category = resolve_category(session, "Rewwe", CategoryName.DINING)
     assert category.name == "Groceries"  # stored mapping wins over the new guess
 
 
