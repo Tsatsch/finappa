@@ -9,8 +9,9 @@ A single-user Telegram bot that turns free-text messages ("30€ in Rewe and 15�
 fuel") into structured ledger entries in SQLite, answers month-to-date questions,
 handles recurring transactions, and backs itself up daily.
 
-Deployed as **one Docker container on a Hetzner VPS**. No inbound ports, no domain,
-no TLS, no reverse proxy.
+Deployed as **one Docker container on any always-on Linux host**. No inbound ports,
+no domain, no TLS, no reverse proxy. The host is deliberately interchangeable
+(§10.2).
 
 ### Goals
 
@@ -456,7 +457,54 @@ stdlib `sqlite3` module.
 Deploy: `ssh` in, `git pull && docker compose up -d --build`. Documented in
 AGENTS.md and the `deploy` skill.
 
-### 10.1 One-time setup runbook (for README)
+### 10.1 Host requirements
+
+~150 MB RAM, negligible CPU, a disk that survives reboots, outbound HTTPS, and
+Docker. Nothing else. Any 512 MB VM or single-board computer is oversized.
+
+The design is deliberately host-portable, and three earlier decisions are what make
+it so:
+
+- **Polling** means no static IP, no port forwarding, no DNS, no domain. Works
+  behind home NAT and CGNAT.
+- **The daily idempotent recurring check** (§8.2) means a day of downtime loses
+  nothing; it self-heals on the next run.
+- **Daily encrypted backups** (§8.1) cap host loss at 24 hours.
+
+Migration is: copy `data/`, copy `.env`, `docker compose up -d --build`.
+
+### 10.2 Host decision (2026-08-10)
+
+**Cloud for now. Oracle Cloud Always Free, deliberately NOT upgraded to
+Pay-As-You-Go.** Oracle refuses to provision beyond free-tier limits, so an
+unexpected bill is impossible by construction — which is the requirement, not
+merely a preference.
+
+Accepted cost: Oracle may *stop* (not delete) instances idling below 10% CPU and
+10% network over 7 days, and this bot is idle by design. The boot volume persists;
+recovery is restarting the instance. If it happens more than twice, move to the
+fallback rather than converting to Pay-As-You-Go — PAYG removes reclamation but
+reintroduces billing exposure.
+
+**Fallback: a prepaid annual budget VPS** (~$15/year). Prepayment makes overage
+structurally impossible, with no reclamation policy to trust.
+
+**Rejected: Hetzner.** [Prices rose on 15 June 2026](https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/);
+the cheapest CX23 is €5.49/mo excl. VAT and excl. IPv4, landing near €7/mo real —
+roughly €84/year for a bot whose API usage costs well under $1/year.
+
+**DDoS billing exposure is nil.** Inbound bandwidth is unbilled on all major
+providers; only egress is charged. With no listening ports, no domain, and no DNS
+record, there is no public service to flood and nothing that would respond at
+volume. A flood makes the VM briefly unreachable; it costs nothing.
+
+**Liveness monitoring is free and built in:** if the host dies, the next expense
+message gets no confirmation reply.
+
+**Parked: home self-hosting on a Raspberry Pi**, covering hardware selection and
+running several Docker projects on one box. See `docs/backlog.md`.
+
+### 10.3 One-time setup runbook (for README)
 
 1. Create the bot with `@BotFather`, copy the token.
 2. Get your user ID (`@userinfobot`), set `ALLOWED_TELEGRAM_USER_ID`.
