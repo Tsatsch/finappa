@@ -1,7 +1,9 @@
+import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.categories import CategoryName
-from app.db import Category, init_db, make_engine
+from app.db import Category, Transaction, init_db, make_engine, get_sessionmaker
 
 
 def test_wal_mode_enabled(tmp_path):
@@ -29,3 +31,28 @@ def test_init_db_is_idempotent(tmp_path):
     with Session() as session:
         count = session.query(Category).count()
     assert count == len(list(CategoryName))
+
+
+def test_foreign_key_enforcement_enabled(tmp_path):
+    from datetime import datetime, timezone
+
+    engine = make_engine(str(tmp_path / "test.db"))
+    init_db(engine)
+    Session = get_sessionmaker(engine)
+
+    # Attempt to insert a Transaction with a nonexistent category_id
+    with pytest.raises(IntegrityError):
+        with Session() as session:
+            invalid_transaction = Transaction(
+                ts=datetime.now(timezone.utc),
+                amount_cents=1000,
+                type="expense",
+                merchant_id=None,
+                category_id=9999,  # nonexistent category
+                notes="test",
+                source="test",
+                source_update_id=None,
+                recurring_rule_id=None
+            )
+            session.add(invalid_transaction)
+            session.flush()  # FK check happens on flush

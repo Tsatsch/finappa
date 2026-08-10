@@ -76,6 +76,7 @@ def make_engine(db_path: str) -> Engine:
     def _set_wal(dbapi_connection, _connection_record) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
     return engine
