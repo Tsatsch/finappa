@@ -253,10 +253,22 @@ logged.
 Applied to every extracted item before anything is written:
 
 - `currency != "EUR"` → **reject the entire message**, log nothing, reply
-  explaining. All-or-nothing beats half-logging a receipt.
+  explaining.
 - `amount <= 0` or `amount > 1_000_000` → reject the message. A hallucinated
   `30000` for "30€" must not reach the ledger.
 - `transactions` empty → reply that nothing was found; log nothing.
+
+**Why all-or-nothing rather than logging the valid items:** if one item of three
+is rejected, the user's natural response is to retype the corrected message — which
+would log the other two a second time. Rejecting the whole message makes
+"just re-send it" always the correct action.
+
+To keep re-sending cheap, the rejection reply quotes back what was parsed:
+
+```
+Nothing logged — 'fuel' came back as USD, and I only handle EUR.
+I read: 30,00 € Rewe (Groceries) · 15,00 USD fuel
+```
 
 ## 6. Message pipeline
 
@@ -309,8 +321,21 @@ canonical forever. One bad guess ("Rewe" → `Dining`) silently mis-files every
 future purchase there, and `/undo` cannot fix it because it deletes transactions,
 not mappings.
 
-Escape hatch: **`/recat <merchant> <category>`** updates the stored mapping.
-It does not retroactively rewrite existing transactions (v1).
+Escape hatch: **`/recat <merchant> <category>`**. It repoints the stored mapping
+**and backfills history** in one statement:
+
+```sql
+UPDATE transactions SET category_id = :new WHERE merchant_id = :merchant
+```
+
+Every past summary becomes correct rather than permanently skewed. The reply
+reports the count: `Rewe → Groceries, 47 past transactions updated.`
+
+Compensating transaction pairs were considered and rejected: a category change is
+not a money movement, so the pair nets to zero and clutters `/summary` and
+`/export` with phantom line items forever. The audit trail an in-ledger correction
+would preserve already exists — yesterday's backup snapshot holds the previous
+categorization.
 
 ## 7. Commands
 
@@ -319,7 +344,7 @@ It does not retroactively rewrite existing transactions (v1).
 | `/summary` | Current month: income, expenses (net of refunds), net, and a per-category breakdown. One `GROUP BY`. |
 | `/undo` | Deletes every row sharing the most recent non-null `source_update_id`. Removes the whole message, not one line. Never touches `source='recurring'` rows. Replies with what was removed. |
 | `/export` | All transactions as CSV built with the stdlib `csv` module into an in-memory buffer, sent as a document. |
-| `/recat` | `/recat <merchant> <category>` — repoint a merchant's stored category. Validates the category against the enum; lists valid ones on error. |
+| `/recat` | `/recat <merchant> <category>` — repoint a merchant's stored category and backfill all past transactions for that merchant (§6.3). Validates the category against the enum; lists valid ones on error. |
 | `/help` | Usage. Also bound to `/start`. |
 
 ## 8. Scheduled jobs
@@ -442,7 +467,7 @@ pytest against a temporary SQLite file, with the OpenAI client stubbed at the
 | Test | Asserts |
 |---|---|
 | `test_extractor` | Validation rejects non-EUR, non-positive, and absurd amounts; empty result is handled; API failure surfaces a user-facing error. |
-| `test_categorize` | A >85% fuzzy hit overrides the LLM's category; a miss creates the merchant with the LLM's category; `/recat` repoints it. |
+| `test_categorize` | A >85% fuzzy hit overrides the LLM's category; a miss creates the merchant with the LLM's category; `/recat` repoints the mapping **and** backfills past transactions for that merchant only. |
 | `test_analytics` | Refunds reduce expenses; net arithmetic; **a transaction at 00:30 local on the 1st falls in the correct month** (Berlin/UTC boundary). |
 | `test_recurring` | Running the check twice inserts one row; a rule whose day has not arrived does not fire; a missed day self-heals on the next run. |
 | `test_undo` | Removes all rows of the last message batch and only those; never removes recurring rows; no-op on an empty ledger. |
@@ -478,3 +503,5 @@ pytest against a temporary SQLite file, with the OpenAI client stubbed at the
 | Separate recurring-runs table | The ledger is the state (§8.2). |
 | Monthly recurring job | Skips a month if the container is down on the 1st (§8.2). |
 | Remote backup retention | `deleteMessage` cannot reach past 48 hours (§8.1). |
+| Partial logging of a mixed-validity message | Re-sending the correction would duplicate the valid items (§5.3). |
+| Compensating entries for `/recat` | Zero-sum pairs pollute every future report; backups are the audit trail (§6.3). |
