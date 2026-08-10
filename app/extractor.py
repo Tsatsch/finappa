@@ -88,6 +88,7 @@ def validate_extraction(result: ExtractionResult) -> list[TransactionItem]:
 def extract_transactions(client: OpenAI, model: str, text: str) -> list[TransactionItem]:
     try:
         result = _client_parse(client, model, text)
+        return validate_extraction(result)
     except ExtractionError:
         raise
     except Exception as exc:
@@ -95,4 +96,3 @@ def extract_transactions(client: OpenAI, model: str, text: str) -> list[Transact
             f"Couldn't reach the AI extractor ({exc.__class__.__name__}). "
             "Nothing logged — try again."
         ) from exc
-    return validate_extraction(result)

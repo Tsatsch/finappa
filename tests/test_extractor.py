@@ -69,3 +69,14 @@ def test_extract_transactions_returns_items_on_success():
     client.chat.completions.parse.return_value = completion
     items = extract_transactions(client, "gpt-4o-mini", "30€ Rewe")
     assert items[0].merchant == "Rewe"
+
+
+def test_extract_transactions_wraps_refusal_response():
+    """When OpenAI returns a refusal (parsed=None), extract_transactions should wrap
+    the resulting validation error as ExtractionError, not let AttributeError escape."""
+    client = MagicMock()
+    completion = MagicMock()
+    completion.choices = [MagicMock(message=MagicMock(parsed=None))]
+    client.chat.completions.parse.return_value = completion
+    with pytest.raises(ExtractionError):
+        extract_transactions(client, "gpt-4o-mini", "some text")
