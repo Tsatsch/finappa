@@ -29,7 +29,7 @@ def _add_rule(session, key="rent", day_of_month=1, amount_cents=120000, active=T
 
 def test_running_twice_inserts_one_row(session):
     _add_rule(session, day_of_month=1)
-    at = datetime(2026, 3, 15, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    at = datetime(2026, 3, 1, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
 
     fired_first = run_recurring_check(session, "Europe/Berlin", at=at)
     fired_second = run_recurring_check(session, "Europe/Berlin", at=at)
@@ -49,15 +49,19 @@ def test_day_not_arrived_does_not_fire(session):
     assert session.query(Transaction).count() == 0
 
 
-def test_missed_day_self_heals_next_run(session):
+def test_day_already_passed_does_not_fire(session):
+    # By explicit request (2026-08-11): a rule waits for its exact day next
+    # month rather than catching up on a later check within the same month.
+    # Superseded design: this used to self-heal (see git history) — the
+    # user preferred no "surprise backdated-feeling" entries over that
+    # resilience, after being shown the trade-off.
     _add_rule(session, day_of_month=1)
-    # Container was down on the 1st; first check happens on the 5th.
     at = datetime(2026, 3, 5, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
 
     fired = run_recurring_check(session, "Europe/Berlin", at=at)
 
-    assert len(fired) == 1
-    assert session.query(Transaction).filter_by(source="recurring").count() == 1
+    assert fired == []
+    assert session.query(Transaction).filter_by(source="recurring").count() == 0
 
 
 def test_inactive_rule_never_fires(session):

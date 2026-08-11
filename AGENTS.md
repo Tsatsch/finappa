@@ -32,6 +32,14 @@ an encrypted backup upload. Deployed as one Docker container with no `ports:` ke
   decides whether a rule already fired this month by querying `transactions`
   directly. Do not add a separate "runs" table — it can drift from reality; the
   ledger cannot.
+- **Recurring rules fire on their exact day only, never catch up.**
+  `day_of_month == today_local.day`, not `<=`. Deliberately reversed
+  2026-08-11 from the original self-healing design after a rule fired 10
+  days late on first deploy and read as a surprising backdated entry — the
+  user was shown the trade-off (a rule's day passing during downtime now
+  skips that month entirely) and chose it anyway. Do not revert to `<=`
+  without asking first; see the design spec's §8.2 addendum for the full
+  history.
 - **All-or-nothing message validation.** One invalid item in a multi-item message
   rejects the whole message. Never log the valid items and drop the rest — the
   user's natural retry would then double-log them.

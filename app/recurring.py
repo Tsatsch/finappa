@@ -52,7 +52,12 @@ def run_recurring_check(
 
     fired = []
     for rule in session.query(RecurringRule).filter_by(active=True).all():
-        if rule.day_of_month > now_local.day:
+        # Exact-day match only, by explicit request (2026-08-11) — a rule
+        # does NOT catch up if its day already passed this month; it waits
+        # for next month instead. Trade-off accepted: if the container is
+        # down specifically on a rule's day, that month's entry is skipped
+        # entirely rather than self-healing on a later check.
+        if rule.day_of_month != now_local.day:
             continue
         already_logged = (
             session.query(Transaction)

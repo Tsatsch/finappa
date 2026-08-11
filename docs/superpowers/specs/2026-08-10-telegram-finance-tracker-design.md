@@ -19,7 +19,9 @@ no domain, no TLS, no reverse proxy. The host is deliberately interchangeable
 - Keep category assignment stable across months for the same merchant.
 - Answer `/summary` for the current month with correct arithmetic.
 - Insert recurring items (rent, salary, ETF) exactly once per month, self-healing
-  across container downtime.
+  across container downtime. **Superseded 2026-08-11 — see §8.2 addendum:** a
+  rule now only fires on its exact configured day; self-healing across
+  downtime was deliberately removed by explicit request.
 - Survive VPS loss with at most 24 hours of data lost.
 
 ### Non-goals (v1)
@@ -398,6 +400,21 @@ No row → insert with `source='recurring'` and push a Telegram notification.
 **The ledger is the idempotency state.** There is no separate "runs" table to drift
 out of sync with reality.
 
+**Addendum (2026-08-11) — self-healing removed by explicit request.** The
+`day_of_month <= today_local.day` condition above is **no longer accurate**.
+`run_recurring_check` (`app/recurring.py`) now uses `day_of_month ==
+today_local.day` — a rule fires only on its exact day, never catching up
+later in the month. This surfaced during initial deployment: rent's
+`day_of_month: 1` fired on day 11 (the day the bot was actually set up,
+exactly as self-healing was designed to do), and after seeing that in
+practice, the user preferred no "surprise backdated-feeling" entry over the
+resilience — they were shown the downtime-skips-the-month trade-off
+explicitly and accepted it. The daily 06:00 schedule and the ledger-based
+idempotency check (both above) are unchanged; only the comparison operator
+changed. Current behavior, invariants, and the reasoning trail live in
+`AGENTS.md` and `app/recurring.py`'s inline comment, not here — this
+addendum exists so this section stops being read as current truth.
+
 ### 8.3 `recurring.yml`
 
 Read at startup and upserted into `recurring_rules` by `key`. Ships with commented
@@ -467,8 +484,10 @@ it so:
 
 - **Polling** means no static IP, no port forwarding, no DNS, no domain. Works
   behind home NAT and CGNAT.
-- **The daily idempotent recurring check** (§8.2) means a day of downtime loses
-  nothing; it self-heals on the next run.
+- **The daily idempotent recurring check** (§8.2) means the ledger, not a
+  separate table, is what decides "already logged." **Self-healing across
+  downtime was removed 2026-08-11 (§8.2 addendum)** — a day of downtime on a
+  rule's exact day now skips that rule for the month, by explicit request.
 - **Daily encrypted backups** (§8.1) cap host loss at 24 hours.
 
 Migration is: copy `data/`, copy `.env`, `docker compose up -d --build`.
@@ -538,7 +557,7 @@ pytest against a temporary SQLite file, with the OpenAI client stubbed at the
 | `test_extractor` | Validation rejects non-EUR, non-positive, and absurd amounts; empty result is handled; API failure surfaces a user-facing error. |
 | `test_categorize` | A >85% fuzzy hit overrides the LLM's category; a miss creates the merchant with the LLM's category; `/recat` repoints the mapping **and** backfills past transactions for that merchant only. |
 | `test_analytics` | Refunds reduce expenses; net arithmetic; **a transaction at 00:30 local on the 1st falls in the correct month** (Berlin/UTC boundary). |
-| `test_recurring` | Running the check twice inserts one row; a rule whose day has not arrived does not fire; a missed day self-heals on the next run. |
+| `test_recurring` | Running the check twice inserts one row; a rule whose day has not arrived does not fire. **Superseded 2026-08-11 (§8.2 addendum):** the suite no longer asserts a missed day self-heals — it now asserts the opposite (`test_day_already_passed_does_not_fire`), matching the exact-day-only behavior. |
 | `test_undo` | Removes all rows of the last message batch and only those; never removes recurring rows; no-op on an empty ledger. |
 | `test_backup` | `VACUUM INTO` produces a readable database; encrypt→decrypt round-trips to a byte-identical, openable database; pruning keeps exactly the newest 7. |
 

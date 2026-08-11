@@ -1,5 +1,7 @@
 import logging
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -78,8 +80,8 @@ def _add_rule(session, key="rent", day_of_month=1, amount_cents=120000, active=T
 
 
 async def test_recurring_job_sends_message_when_rule_fires(settings):
-    # day_of_month=1 always fires: today's local day-of-month is always >= 1,
-    # so this doesn't need to fake "now" the way tests/test_recurring.py does.
+    # Exact-day match now (app/recurring.py) — pass a fixed `at` rather than
+    # relying on the real day the test happens to run on.
     engine = make_engine(settings.db_path)
     init_db(engine)
     session_factory = get_sessionmaker(engine)
@@ -96,7 +98,8 @@ async def test_recurring_job_sends_message_when_rule_fires(settings):
     # the RecurringRule objects it returns. Accessing rule.label/amount_cents
     # after the `with session_factory()` block has closed must not raise
     # DetachedInstanceError.
-    await recurring_job(context)
+    at = datetime(2026, 3, 1, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    await recurring_job(context, at=at)
 
     context.bot.send_message.assert_called_once()
     _, kwargs = context.bot.send_message.call_args

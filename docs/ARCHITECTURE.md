@@ -148,18 +148,38 @@ Both scheduled in `build_application` (`app/main.py`) on PTB's `JobQueue` —
 no cron, no separate container, no HTTP trigger endpoint.
 
 **`recurring_job`** — daily at 06:00 Europe/Berlin, plus once at process
-startup (`run_once(..., when=0)`). Delegates to `run_recurring_check`
+startup (`run_once(..., when=0)`). All three `JobQueue` jobs (this one, the
+daily version, and `backup_job`) are registered with
+`job_kwargs={"misfire_grace_time": None}`: APScheduler's default grace window
+is 1 second, and a `when=0` job targets "right now," so any startup delay
+past 1 second (normal — connecting to Telegram, etc.) caused the job to be
+*silently skipped entirely* rather than run late. Confirmed live in
+production — a startup run missed by 2.5 seconds and never executed, so a
+recurring transaction never got logged. Delegates to `run_recurring_check`
 (`app/recurring.py`), which is the whole idempotency mechanism in one query:
-for each active `RecurringRule` whose `day_of_month` has already arrived this
-month, check whether a `Transaction` with that `recurring_rule_id` already
-exists in the current month's window; if not, insert one. **The ledger itself
-is the state** — there is no separate "has this run" table to drift out of
-sync. Running daily instead of monthly is what makes this self-healing: if
-the container is down on the 1st, the next successful run within that month
-still catches it. `recurring.yml` is loaded into `RecurringRule` rows at
-every startup by `load_recurring_rules` (upsert by `key`; validates
-`day_of_month` is 1–28 and `type` is one of the three valid values, raising
-loudly at startup rather than silently accepting garbage).
+for each active `RecurringRule` whose `day_of_month` **exactly equals**
+today's local day, check whether a `Transaction` with that `recurring_rule_id`
+already exists in the current month's window; if not, insert one. **The
+ledger itself is the state** — there is no separate "has this run" table to
+drift out of sync, so running the check twice on the same matching day is
+always safe (the second run sees the row and no-ops).
+
+Note the exact match, not `<=`: **a rule does not catch up if its day already
+passed this month** — it waits for next month. This was a deliberate reversal
+(2026-08-11) of the original design, which self-healed across downtime by
+firing on any later day within the month. That surfaced during initial
+deployment — a rule with `day_of_month: 1` fired on day 11 (the day the bot
+was actually set up), which is exactly what self-healing was designed to do,
+but reads as a surprising backdated-feeling entry in practice. Trade-off
+accepted knowingly: if the container is down specifically on a rule's day,
+that month's entry is skipped entirely, not caught up later. See
+`app/recurring.py`'s inline comment and the design spec's §8.2 addendum for
+the full reasoning trail.
+
+`recurring.yml` is loaded into `RecurringRule` rows at every startup by
+`load_recurring_rules` (upsert by `key`; validates `day_of_month` is 1–28 and
+`type` is one of the three valid values, raising loudly at startup rather
+than silently accepting garbage).
 
 **`backup_job`** — daily at 03:30 Europe/Berlin. `create_snapshot`
 (`app/backup.py`) runs `VACUUM INTO` (never a plain file copy — the live DB is

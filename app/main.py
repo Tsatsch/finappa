@@ -1,5 +1,5 @@
 import logging
-from datetime import time
+from datetime import datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -20,11 +20,15 @@ def _local_time(hour: int, minute: int, tz_name: str) -> time:
     return time(hour=hour, minute=minute, tzinfo=ZoneInfo(tz_name))
 
 
-async def recurring_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def recurring_job(context: ContextTypes.DEFAULT_TYPE, at: datetime | None = None) -> None:
+    # `at` is test-only: APScheduler always calls this with just `context`,
+    # so the default (real "now") is what runs in production. Mirrors
+    # run_recurring_check's own `at` param so tests can pick a fixed date
+    # instead of depending on which day they happen to run.
     session_factory = context.bot_data["session_factory"]
     settings: Settings = context.bot_data["settings"]
     with session_factory() as session:
-        fired = run_recurring_check(session, settings.timezone)
+        fired = run_recurring_check(session, settings.timezone, at=at)
         fired_values = [(rule.label, rule.amount_cents) for rule in fired]
     for label, amount_cents in fired_values:
         await context.bot.send_message(
