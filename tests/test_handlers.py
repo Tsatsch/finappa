@@ -61,6 +61,20 @@ def test_process_message_rejection_logs_nothing(session_factory):
         assert session.query(Transaction).count() == 0
 
 
+def test_process_message_multi_item_rejection_logs_nothing(session_factory):
+    # AGENTS.md invariant: one invalid item in a multi-item message rejects the
+    # whole message. Regression guard for the case a single-item test can't
+    # cover — the valid item must not get logged just because it came first.
+    client = _stub_client(_item(), _item(currency="USD", merchant="Shell"))
+    reply = process_message(
+        session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe and 15 USD Shell", update_id=1
+    )
+
+    assert "EUR" in reply
+    with session_factory() as session:
+        assert session.query(Transaction).count() == 0
+
+
 def test_summary_text_reports_zero_on_empty_ledger(session_factory):
     text = summary_text(session_factory, "Europe/Berlin")
     assert "0,00 €" in text
