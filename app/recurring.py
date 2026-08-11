@@ -9,6 +9,8 @@ from app.analytics import month_bounds_utc
 from app.categories import CategoryName
 from app.db import Category, RecurringRule, Transaction
 
+VALID_TYPES = {"EXPENSE", "INCOME", "REFUND"}
+
 
 def load_recurring_rules(session: Session, yaml_path: str) -> None:
     path = Path(yaml_path)
@@ -20,6 +22,11 @@ def load_recurring_rules(session: Session, yaml_path: str) -> None:
         if not 1 <= day_of_month <= 28:
             raise ValueError(
                 f"recurring.yml: '{entry['key']}' day_of_month must be 1..28, got {day_of_month}"
+            )
+        if entry["type"] not in VALID_TYPES:
+            raise ValueError(
+                f"recurring.yml: '{entry['key']}' type must be one of {sorted(VALID_TYPES)}, "
+                f"got {entry['type']!r}"
             )
         category = session.query(Category).filter_by(name=CategoryName(entry["category"]).value).one()
         amount_cents = round(entry["amount"] * 100)
