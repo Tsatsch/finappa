@@ -22,11 +22,18 @@ Telegram  ──long poll──>  app/main.py (Application)
                                │
                                ▼
                           app/db.py (SQLite, WAL)
+                               ▲
+                               │ read-only mount + sqlite mode=ro
+                          stats service (Starlette)
+                               │
+                          publishes STATS_PORT (Basic Auth)
+                               │
+                          browser via http://<ip>.nip.io:<port>/
 ```
 
-Nothing in this system listens on a network port. `docker-compose.yml` has no
-`ports:` key. The bot reaches out to `api.telegram.org` and `api.openai.com`;
-nothing reaches in.
+The **bot** service still has no listening port. The **stats** sibling is the
+only compose service allowed to publish one — see `AGENTS.md` and
+`docs/superpowers/specs/2026-08-11-stats-website-design.md`.
 
 ## The message lifecycle
 
@@ -236,22 +243,26 @@ rather than decoration.
 | `app/backup.py` | Snapshotting, encryption, pruning — no Telegram/PTB imports, pure file operations |
 | `app/handlers.py` | Every Telegram-facing behavior: the message pipeline, the confirmation flow, all commands |
 | `app/main.py` | Wires it all together, owns the two job schedules and the error handler, process entrypoint |
+| `stats/` | Read-only stats one-pager: Basic Auth, `/api/data`, Chart.js UI |
 
 ## Security model, briefly
 
 - **Auth:** `filters.User(user_id=...)` on every message/command handler; a
   manual `from_user.id` check on the one `CallbackQueryHandler` (filters don't
   compose with it). No `security.py`, no other auth path.
-- **No inbound exposure:** long polling means no webhook, no listening socket,
-  no port ever published in `docker-compose.yml`.
+- **Bot has no inbound exposure:** long polling means no webhook, no listening
+  socket, no port on the bot service.
+- **Stats one-pager** publishes one port with HTTP Basic Auth; DB mount is
+  read-only. Plain HTTP via nip.io is an accepted v1 trade-off.
 - **Backups are encrypted before they leave the host** (Fernet), because the
   destination is a Telegram channel — Telegram sees plaintext for every live
   message already (bots can't use Secret Chats), so the backup file is the one
   place worth encrypting independently.
-- **finappa can safely share a host with other Docker projects** — it never
-  publishes a port, so there's nothing for it to conflict over.
+- **finappa can safely share a host with other Docker projects** — the bot never
+  publishes a port; only stats does, deliberately.
 
 Full threat model and reasoning: `docs/superpowers/specs/2026-08-10-telegram-finance-tracker-design.md` §13.
+Stats website: `docs/superpowers/specs/2026-08-11-stats-website-design.md`.
 
 ## Testing
 

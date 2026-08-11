@@ -12,6 +12,8 @@ often get violated by an unaware edit:
 - `Transaction.ts` is UTC; month boundaries go through `app/analytics.py::month_bounds_utc`.
 - Auth is `filters.User(...)` on every handler — no custom auth module.
 - The ledger itself is the recurring-idempotency state — no separate "runs" table.
-- `docker-compose.yml` must never gain a `ports:` key.
-- Do not add FastAPI, Caddy, webhooks, Alembic, or `thefuzz` — see AGENTS.md's
-  "Do not add" list before introducing any new dependency.
+- The **bot** service must never gain a `ports:` key; only the **stats** sibling
+  may publish one port (Basic Auth).
+- Do not add FastAPI/HTTP inside the bot process, Caddy, webhooks, Alembic, or
+  `thefuzz` — see AGENTS.md's "Do not add" list before introducing any new
+  dependency.

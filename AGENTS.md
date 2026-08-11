@@ -7,10 +7,12 @@ an LLM, tracks them in SQLite, and answers `/summary`. Full design rationale:
 ## Architecture in one paragraph
 
 One Python process. `python-telegram-bot` long-polls Telegram (no webhook, no
-HTTP server, no inbound port). SQLAlchemy over SQLite in WAL mode is the only
+HTTP server on the bot). SQLAlchemy over SQLite in WAL mode is the only
 datastore. OpenAI Structured Outputs extracts transactions from free text.
 PTB's `JobQueue` runs two daily jobs in-process: a recurring-transaction check and
-an encrypted backup upload. Deployed as one Docker container with no `ports:` key.
+an encrypted backup upload. A sibling **stats** container serves a read-only
+one-pager (Starlette + Basic Auth) with one published port. Deployed via Docker
+Compose; the bot service still has no `ports:` key.
 
 ## Invariants — do not violate these without updating the spec first
 
@@ -69,12 +71,12 @@ an encrypted backup upload. Deployed as one Docker container with no `ports:` ke
   call would otherwise write the live token into persisted container logs.
   Confirmed live in production before this was caught. Don't raise this
   logger back to `INFO` without redacting the URL first.
-- **No `ports:` key in `docker-compose.yml`, ever.** Docker writes its own
-  iptables rules that bypass `ufw`; a published port is reachable even with the
-  host firewall set to deny it. This is also why finappa can safely run
-  alongside other Docker Compose projects on a shared host (as it does in
-  production) — it has nothing to conflict over. Never assume the host is
-  dedicated to finappa alone.
+- **No `ports:` on the bot service, ever.** Docker writes its own
+  iptables rules that bypass `ufw`; a published port on the bot would be
+  reachable even with the host firewall set to deny it. The **stats** sibling
+  service is the sole exception — it may publish exactly one host port for the
+  read-only one-pager (HTTP Basic Auth). Never assume the host is dedicated to
+  finappa alone.
 
 ## File map
 
@@ -90,6 +92,7 @@ an encrypted backup upload. Deployed as one Docker container with no `ports:` ke
 | `app/backup.py` | `VACUUM INTO` snapshotting, Fernet encryption, local pruning |
 | `app/handlers.py` | Message pipeline + all Telegram commands (thin async wrappers over plain functions) |
 | `app/main.py` | Wires everything, registers the two `JobQueue` jobs, entrypoint |
+| `stats/` | Read-only stats one-pager (Starlette); sibling compose service with Basic Auth |
 
 ## Common tasks
 
@@ -131,3 +134,6 @@ reintroduce them without a real, stated reason:
   `bot_data["pending_confirmations"]` dict is deliberate; losing it on
   restart only costs a resend, never data (see
   `docs/superpowers/specs/2026-08-11-category-confirmation-design.md` §5.1).
+- FastAPI (or any HTTP server) **inside the bot process** — the stats
+  one-pager is a sibling container (`python -m stats`), not an inbound
+  route on the Telegram app.

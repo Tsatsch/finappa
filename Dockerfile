@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY app ./app
+COPY stats ./stats
 RUN pip install --no-cache-dir .
 
 COPY recurring.yml ./

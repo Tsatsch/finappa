@@ -31,3 +31,12 @@ couple of times a month. There is no CI/CD; do not propose adding it here.
    a typo'd `.env` value causing `Settings()` validation to fail at startup, in
    which case the container will be in a restart loop (`docker compose ps` shows
    `Restarting`).
+6. If the stats service is enabled (`STATS_USERNAME` / `STATS_PASSWORD` set),
+   confirm it is up:
+   ```bash
+   docker compose ps
+   docker compose logs stats --tail=50
+   curl -I -u "$STATS_USERNAME:$STATS_PASSWORD" "http://127.0.0.1:${STATS_PORT:-8080}/"
+   ```
+   Expect HTTP 200. Then open `http://<host-public-ip>.nip.io:<STATS_PORT>/`
+   in a browser and sign in with Basic Auth.

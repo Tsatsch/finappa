@@ -35,6 +35,8 @@ Architecture notes for AI coding tools: [`AGENTS.md`](AGENTS.md).
    ```
    **Store that key in a password manager.** Losing it makes every remote backup
    permanently unreadable (spec §13.2) — local snapshots on disk are unaffected.
+   Also set `STATS_USERNAME` and `STATS_PASSWORD` for the read-only stats
+   one-pager (a strong unique password — this endpoint is public via nip.io).
 6. Edit `recurring.yml` for your actual rent/salary/etc.
 7. Create the data directory with the right owner **before** first start — the
    container runs as uid 1000, and a bind mount created by Docker itself would
@@ -50,7 +52,13 @@ Architecture notes for AI coding tools: [`AGENTS.md`](AGENTS.md).
    docker compose logs -f --tail=50
    ```
 9. Send `/help` to the bot in Telegram to confirm it's alive.
-
+10. Open the stats page:
+    ```text
+    http://<host-public-ip>.nip.io:<STATS_PORT>/
+    ```
+    (default port `8080`). Enter the Basic Auth credentials from `.env`.
+    Docker publishes this port past `ufw` — Basic Auth is the access control.
+    Traffic is plain HTTP; treat the password accordingly.
 ## Host hardening
 
 The bot itself has no listening ports and no public identity, so the VPS's SSH
