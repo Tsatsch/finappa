@@ -13,6 +13,7 @@ class TransactionItem(BaseModel):
     currency: str
     merchant: str
     category: CategoryName
+    category_confident: bool
     type: Literal["EXPENSE", "INCOME", "REFUND"]
     notes: str | None = None
 
@@ -38,7 +39,12 @@ SYSTEM_PROMPT = (
     "payer/payee name (empty string if there is none, e.g. a salary deposit), "
     "the category (pick the single best fit from the given list), the type "
     "(EXPENSE, INCOME, or REFUND), and any short note worth keeping. If the "
-    "message describes no transactions, return an empty list."
+    "message describes no transactions, return an empty list. Also set "
+    "category_confident to true or false: false only when the category is a "
+    "genuine judgment call between two or more categories, or the merchant "
+    "gives no real signal for a category — not merely because the merchant is "
+    "unfamiliar to you. Default to true whenever a category is a reasonably "
+    "obvious fit."
 )
 
 

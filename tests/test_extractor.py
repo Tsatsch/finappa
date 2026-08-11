@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from app.categories import CategoryName
 from app.extractor import (
@@ -22,11 +23,27 @@ def _item(**overrides) -> TransactionItem:
         currency="EUR",
         merchant="Rewe",
         category=CategoryName.GROCERIES,
+        category_confident=True,
         type="EXPENSE",
         notes=None,
     )
     defaults.update(overrides)
     return TransactionItem(**defaults)
+
+
+def test_transaction_item_requires_category_confident():
+    with pytest.raises(ValidationError):
+        TransactionItem(
+            amount=30.0, currency="EUR", merchant="Rewe",
+            category=CategoryName.GROCERIES, type="EXPENSE", notes=None,
+        )
+
+
+def test_transaction_item_accepts_category_confident_true_and_false():
+    confident = _item(category_confident=True)
+    unconfident = _item(category_confident=False)
+    assert confident.category_confident is True
+    assert unconfident.category_confident is False
 
 
 def test_validate_extraction_passes_valid_items():

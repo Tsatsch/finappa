@@ -30,7 +30,7 @@ def _stub_client(*items: TransactionItem) -> MagicMock:
 def _item(**overrides) -> TransactionItem:
     defaults = dict(
         amount=30.0, currency="EUR", merchant="Rewe",
-        category=CategoryName.GROCERIES, type="EXPENSE", notes=None,
+        category=CategoryName.GROCERIES, category_confident=True, type="EXPENSE", notes=None,
     )
     defaults.update(overrides)
     return TransactionItem(**defaults)
