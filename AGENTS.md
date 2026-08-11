@@ -35,6 +35,12 @@ an encrypted backup upload. Deployed as one Docker container with no `ports:` ke
   every past transaction for that merchant in one statement. Never implement it
   as compensating (reversal + re-entry) transactions — that pollutes every future
   `/summary` and `/export` with zero-sum rows.
+- **Uncertain new-merchant categorization holds for confirmation, never
+  guesses.** A new or merchant-less item where the LLM sets
+  `category_confident: false` is never inserted until the user taps a
+  category button (or "Don't log this") in Telegram. Known merchants and
+  confident guesses log immediately, unchanged — see
+  `app/handlers.py::process_message`.
 - **No `ports:` key in `docker-compose.yml`, ever.** Docker writes its own
   iptables rules that bypass `ufw`; a published port is reachable even with the
   host firewall set to deny it.
@@ -90,3 +96,7 @@ reintroduce them without a real, stated reason:
 - A regex fast-path before the LLM call — saves under a cent, adds a second code
   path to keep in sync.
 - Any new dependency for something a few lines of stdlib already does.
+- A DB-backed pending-confirmation table — the in-memory
+  `bot_data["pending_confirmations"]` dict is deliberate; losing it on
+  restart only costs a resend, never data (see
+  `docs/superpowers/specs/2026-08-11-category-confirmation-design.md` §5.1).
