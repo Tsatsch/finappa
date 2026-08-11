@@ -31,6 +31,31 @@ def test_build_application_wires_bot_data_and_jobs(settings, tmp_path):
     assert {"recurring_check", "recurring_check_startup", "daily_backup"} <= job_names
 
 
+def test_scheduled_jobs_have_unlimited_misfire_grace_time(settings, tmp_path):
+    # Regression test: APScheduler's default misfire_grace_time is 1 second.
+    # run_once(..., when=0) targets "right now", so any startup delay past 1s
+    # (normal — connecting to Telegram, etc.) causes the job to be silently
+    # skipped entirely rather than run late. Observed in production: a
+    # recurring_check_startup run missed by 2.54s and never executed, so
+    # rent never got logged. All three jobs are idempotent and safe to run
+    # whenever the process next gets to them, so none should have a grace
+    # time that can cause a silent skip.
+    application = build_application(settings, recurring_yaml_path=str(tmp_path / "missing.yml"))
+
+    jobs_by_name = {job.name: job for job in application.job_queue.jobs()}
+    for name in ("recurring_check", "recurring_check_startup", "daily_backup"):
+        # getattr with a sentinel: APScheduler only resolves the
+        # misfire_grace_time default when its scheduler actually starts, not
+        # at add_job() time, so an unfixed job has no such attribute at all
+        # yet rather than reading as the buggy default of 1 — direct access
+        # would raise AttributeError instead of giving a readable failure.
+        grace = getattr(jobs_by_name[name].job, "misfire_grace_time", "UNSET")
+        assert grace is None, (
+            f"{name}.misfire_grace_time == {grace!r}, expected None (job_kwargs "
+            "must set it explicitly) — a finite grace time can be silently skipped"
+        )
+
+
 def _add_rule(session, key="rent", day_of_month=1, amount_cents=120000, active=True, label="Rent"):
     category = session.query(Category).filter_by(name="Housing").one()
     rule = RecurringRule(

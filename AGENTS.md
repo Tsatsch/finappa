@@ -45,6 +45,15 @@ an encrypted backup upload. Deployed as one Docker container with no `ports:` ke
   category button (or "Don't log this") in Telegram. Known merchants and
   confident guesses log immediately, unchanged — see
   `app/handlers.py::process_message`.
+- **Every `JobQueue` job needs `job_kwargs={"misfire_grace_time": None}`.**
+  APScheduler's default grace window is 1 second; `run_once(..., when=0)`
+  targets "right now," so any startup delay past 1s (normal — connecting to
+  Telegram, etc.) causes the job to be silently *skipped entirely*, not run
+  late — only a warning is logged. Bit us in production: the startup
+  recurring check missed by 2.5s and never ran, so rent silently didn't get
+  logged. Every job here is idempotent and safe to run whenever the process
+  gets to it, so none should ever be droppable this way. See
+  `app/main.py::build_application`.
 - **No `ports:` key in `docker-compose.yml`, ever.** Docker writes its own
   iptables rules that bypass `ufw`; a published port is reachable even with the
   host firewall set to deny it. This is also why finappa can safely run

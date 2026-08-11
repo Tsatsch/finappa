@@ -93,12 +93,27 @@ def build_application(settings: Settings, recurring_yaml_path: str = "recurring.
     register_handlers(application, settings.allowed_telegram_user_id)
     application.add_error_handler(error_handler)
 
+    # misfire_grace_time=None: APScheduler's default grace window is 1 second.
+    # run_once(..., when=0) targets "right now", so any startup delay past 1s
+    # (normal — connecting to Telegram, etc.) causes the job to be silently
+    # skipped entirely instead of run late, only logging a warning. All three
+    # jobs are idempotent and safe to run whenever the process next gets to
+    # them, so none should ever be silently dropped for running late.
+    unlimited_grace = {"misfire_grace_time": None}
     application.job_queue.run_daily(
-        recurring_job, time=_local_time(6, 0, settings.timezone), name="recurring_check"
+        recurring_job,
+        time=_local_time(6, 0, settings.timezone),
+        name="recurring_check",
+        job_kwargs=unlimited_grace,
     )
-    application.job_queue.run_once(recurring_job, when=0, name="recurring_check_startup")
+    application.job_queue.run_once(
+        recurring_job, when=0, name="recurring_check_startup", job_kwargs=unlimited_grace
+    )
     application.job_queue.run_daily(
-        backup_job, time=_local_time(3, 30, settings.timezone), name="daily_backup"
+        backup_job,
+        time=_local_time(3, 30, settings.timezone),
+        name="daily_backup",
+        job_kwargs=unlimited_grace,
     )
 
     return application
