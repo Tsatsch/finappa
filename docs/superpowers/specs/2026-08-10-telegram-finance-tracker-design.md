@@ -504,6 +504,20 @@ message gets no confirmation reply.
 **Parked: home self-hosting on a Raspberry Pi**, covering hardware selection and
 running several Docker projects on one box. See `docs/backlog.md`.
 
+**Actual outcome (2026-08-11):** Oracle Always Free was abandoned during
+provisioning, not for cost or reclamation risk, but for two compounding
+practical problems: the OCI console's inline VCN/subnet creation failed
+repeatedly and needed the separate VCN Wizard instead, and `VM.Standard.A1.Flex`
+was out of capacity in all three Frankfurt ADs with no ETA — a widely-reported,
+unpredictable shortage for the free Ampere shape. finappa ended up deployed as a
+second `docker compose` project on a Hetzner server already paid for and running
+another app, making marginal hosting cost **€0**. This is a stronger fit for the
+original requirement (structurally impossible bill), not a compromise of it — it
+just wasn't the anticipated shape of the answer. The Hetzner rejection above was
+about *dedicated* Hetzner pricing; co-locating on an already-owned box sidesteps
+that math entirely. Full reasoning trail is in the `finappa-hosting-plan` memory
+note, not duplicated here.
+
 ### 10.3 One-time setup runbook (for README)
 
 1. Create the bot with `@BotFather`, copy the token.

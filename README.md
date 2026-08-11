@@ -56,6 +56,13 @@ Architecture notes for AI coding tools: [`AGENTS.md`](AGENTS.md).
 The bot itself has no listening ports and no public identity, so the VPS's SSH
 is the actual attack surface (spec §13.3). Do this once, on any fresh host:
 
+**Deploying onto a host that already runs something else?** Skip the `ufw`
+block below and check its current rules first (`sudo ufw status`) — running
+`ufw enable` with a blind `default deny incoming` will cut off whatever port
+your other app needs unless you explicitly `ufw allow` it first. finappa
+itself needs no inbound rule at all (no `ports:` key, ever), so it never
+requires opening anything new.
+
 ```bash
 # Key-only SSH, no root login
 sudo sed -i \

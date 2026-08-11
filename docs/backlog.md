@@ -35,8 +35,16 @@ To work through:
 
 From the design spec's non-goals — revisit only after a month of real use:
 
-- Stats dashboard beyond `/summary` (design §1). Decide from actual usage what is
-  worth plotting.
+- **Static read-only stats website.** Requested 2026-08-11, after v1 went live.
+  A simple static page (no editing, no auth flow beyond maybe basic access
+  control) showing an overview of the current financial situation — charts/
+  diagrams, not raw tables. Natural shape: a small script reads straight from
+  `data/finappa.db` (read-only, WAL mode allows concurrent readers safely) and
+  regenerates static HTML/charts, e.g. on a cron alongside the existing daily
+  jobs, or on demand via a tiny script run over SSH. Do not add a live backend
+  API or a database write path for this — it only needs to read. Revisit once
+  there's a month of real transaction history to decide what's actually worth
+  plotting (this was already the plan's original reasoning for deferring it).
 - Voice-note input via transcription.
 - Receipt photos via vision.
 - Backdating ("yesterday I spent 30 at Rewe" currently logs as today).

@@ -47,7 +47,10 @@ an encrypted backup upload. Deployed as one Docker container with no `ports:` ke
   `app/handlers.py::process_message`.
 - **No `ports:` key in `docker-compose.yml`, ever.** Docker writes its own
   iptables rules that bypass `ufw`; a published port is reachable even with the
-  host firewall set to deny it.
+  host firewall set to deny it. This is also why finappa can safely run
+  alongside other Docker Compose projects on a shared host (as it does in
+  production) — it has nothing to conflict over. Never assume the host is
+  dedicated to finappa alone.
 
 ## File map
 
