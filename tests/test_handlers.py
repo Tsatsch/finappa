@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.categories import CategoryName
+from app.categorize import resolve_category
 from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
 from app.extractor import ExtractionResult, TransactionItem
 from app.handlers import (
@@ -204,6 +205,34 @@ def test_confirm_category_uses_pending_ts_not_now(session_factory):
         # comparing — this is a pre-existing characteristic of the schema, not
         # something confirm_category controls.
         assert txn.ts.replace(tzinfo=timezone.utc) == original_ts
+
+
+def test_confirm_category_reports_stored_category_not_tapped_choice(session_factory):
+    # Regression guard: resolve_category's job is "stored category always
+    # wins over a new guess." If the merchant already has a stored category
+    # by confirmation time (e.g. a confident item earlier in the same
+    # message created it, or a second pending confirmation for the same
+    # merchant was answered first), the Transaction gets the STORED
+    # category — but the reply text used to interpolate the raw
+    # category_name the user tapped instead, silently lying about what was
+    # logged whenever the two differ.
+    with session_factory() as session:
+        resolve_category(session, "Kiosk 24", CategoryName.GROCERIES)
+        session.commit()
+
+    pending = PendingConfirmation(
+        pending_id="abc123", ts=datetime.now(timezone.utc), amount_cents=500,
+        type="EXPENSE", merchant="Kiosk 24", notes=None,
+    )
+    # Tap a DIFFERENT category than what's already stored for this merchant.
+    reply = confirm_category(session_factory, pending, "Dining", "Europe/Berlin", update_id=1)
+
+    assert "Groceries" in reply
+    assert "Dining" not in reply
+    with session_factory() as session:
+        groceries = session.query(Category).filter_by(name="Groceries").one()
+        txn = session.query(Transaction).one()
+        assert txn.category_id == groceries.id
 
 
 def _fake_callback_context(session_factory, pending_map, allowed_user_id=12345):

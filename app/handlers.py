@@ -49,6 +49,10 @@ class ProcessResult:
     pending: list[PendingConfirmation]
 
 
+def _pending_label(pending: PendingConfirmation) -> str:
+    return pending.merchant or pending.notes or pending.type.title()
+
+
 def process_message(
     session_factory, openai_client: OpenAI, openai_model: str, tz_name: str, text: str, update_id: int
 ) -> ProcessResult:
@@ -111,6 +115,11 @@ def confirm_category(
     category_enum = CategoryName(category_name)
     with session_factory() as session:
         merchant, category = resolve_category(session, pending.merchant, category_enum)
+        # resolve_category returns the merchant's already-stored category when
+        # one exists — it can differ from category_name (what the user just
+        # tapped). Read .name now, while the session is still open, so the
+        # reply always reflects what was actually written to Transaction.
+        stored_category_name = category.name
         session.add(
             Transaction(
                 ts=pending.ts,
@@ -126,15 +135,15 @@ def confirm_category(
         session.commit()
         summary = monthly_summary(session, tz_name, at=pending.ts)
 
-    label = pending.merchant or pending.notes or pending.type.title()
+    label = _pending_label(pending)
     return (
-        f"Logged: {format_cents(pending.amount_cents)} · {label} · {category_name}\n"
+        f"Logged: {format_cents(pending.amount_cents)} · {label} · {stored_category_name}\n"
         f"Net this month: {format_cents(summary['net_cents'])}"
     )
 
 
 def _pending_prompt_text(pending: PendingConfirmation) -> str:
-    label = pending.merchant or pending.notes or pending.type.title()
+    label = _pending_label(pending)
     return f"Not sure about the category for {format_cents(pending.amount_cents)} · {label} — which fits?"
 
 
@@ -269,7 +278,7 @@ async def handle_category_confirmation(update: Update, context: ContextTypes.DEF
         await query.edit_message_text("This confirmation expired — just resend the message.")
         return
     if choice == "SKIP":
-        label = pending.merchant or pending.notes or "that item"
+        label = _pending_label(pending)
         await query.edit_message_text(f"Discarded: {label}, not logged.")
         return
     reply = await asyncio.to_thread(
