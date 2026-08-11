@@ -23,7 +23,11 @@ an encrypted backup upload. Deployed as one Docker container with no `ports:` ke
   querying — see `app/analytics.py::month_bounds_utc`. Get this backwards and a
   purchase near midnight files under the wrong month.
 - **Auth is one filter, not a module:** `filters.User(user_id=...)` on every
-  handler. There is no `security.py` and there should never be one.
+  message/command handler. The one exception is `CallbackQueryHandler` —
+  `filters.User` does not compose with it, so `handle_category_confirmation`
+  checks `query.from_user.id` manually as its first line, before
+  `query.answer()`. Do not remove that guard. There is no `security.py` and
+  there should never be one.
 - **The ledger is the recurring-idempotency state.** `run_recurring_check`
   decides whether a rule already fired this month by querying `transactions`
   directly. Do not add a separate "runs" table — it can drift from reality; the
