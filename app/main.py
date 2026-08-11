@@ -119,11 +119,20 @@ def build_application(settings: Settings, recurring_yaml_path: str = "recurring.
     return application
 
 
+def _configure_logging(log_level: str) -> None:
+    logging.basicConfig(
+        level=log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    # Telegram's Bot API embeds the token in the request URL itself (no
+    # Authorization header), and httpx logs full request URLs at INFO — every
+    # getMe/getUpdates/sendMessage call would otherwise write the live bot
+    # token straight into persisted container logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
 def main() -> None:
     settings = get_settings()
-    logging.basicConfig(
-        level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    _configure_logging(settings.log_level)
     application = build_application(settings)
     application.run_polling()
 

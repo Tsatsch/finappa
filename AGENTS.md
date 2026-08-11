@@ -54,6 +54,13 @@ an encrypted backup upload. Deployed as one Docker container with no `ports:` ke
   logged. Every job here is idempotent and safe to run whenever the process
   gets to it, so none should ever be droppable this way. See
   `app/main.py::build_application`.
+- **`httpx`'s logger is pinned to `WARNING` in `_configure_logging`
+  (`app/main.py`), never left at `INFO`.** Telegram's Bot API puts the bot
+  token in the request URL itself (no Authorization header), and `httpx`
+  logs full request URLs at `INFO` — every `getMe`/`getUpdates`/`sendMessage`
+  call would otherwise write the live token into persisted container logs.
+  Confirmed live in production before this was caught. Don't raise this
+  logger back to `INFO` without redacting the URL first.
 - **No `ports:` key in `docker-compose.yml`, ever.** Docker writes its own
   iptables rules that bypass `ufw`; a published port is reachable even with the
   host firewall set to deny it. This is also why finappa can safely run

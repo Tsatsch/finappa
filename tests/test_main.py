@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -7,7 +8,16 @@ from cryptography.fernet import Fernet
 
 from app.config import Settings
 from app.db import Category, RecurringRule, get_sessionmaker, init_db, make_engine
-from app.main import backup_job, build_application, recurring_job
+from app.main import _configure_logging, backup_job, build_application, recurring_job
+
+
+def test_configure_logging_suppresses_httpx_info_to_avoid_token_leak():
+    # httpx logs full request URLs at INFO, and Telegram's Bot API embeds the
+    # token in the URL path itself (no Authorization header) — without this,
+    # every getMe/getUpdates/sendMessage call writes the live bot token
+    # straight into persisted container logs.
+    _configure_logging("INFO")
+    assert logging.getLogger("httpx").level == logging.WARNING
 
 
 @pytest.fixture
