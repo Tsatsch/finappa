@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 from datetime import datetime, timezone
@@ -118,7 +119,11 @@ def recat_text(session_factory, merchant_name: str, category_name: str) -> str:
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    reply = process_message(
+    # process_message makes a blocking OpenAI HTTP call and blocking SQLite
+    # work; run it off the event loop so a slow/hung OpenAI call doesn't stall
+    # polling, other commands, and background jobs.
+    reply = await asyncio.to_thread(
+        process_message,
         context.bot_data["session_factory"],
         context.bot_data["openai_client"],
         context.bot_data["openai_model"],
@@ -159,7 +164,13 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 def register_handlers(application: Application, allowed_user_id: int) -> None:
-    user_filter = filters.User(user_id=allowed_user_id)
+    # filters.UpdateType.MESSAGE excludes edited messages. Without it, PTB
+    # matches update.effective_message, which falls back to edited_message —
+    # and update.message is None on an edit, so update.message.text /
+    # .reply_text(...) would raise AttributeError. Edits also carry a new
+    # update_id, so processing them would double-log rather than correct the
+    # original entry; simplest correct behavior is to ignore edits entirely.
+    user_filter = filters.User(user_id=allowed_user_id) & filters.UpdateType.MESSAGE
     application.add_handler(CommandHandler("start", handle_help, filters=user_filter))
     application.add_handler(CommandHandler("help", handle_help, filters=user_filter))
     application.add_handler(CommandHandler("summary", handle_summary, filters=user_filter))
