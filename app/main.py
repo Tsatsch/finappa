@@ -13,6 +13,8 @@ from app.db import get_sessionmaker, init_db, make_engine
 from app.handlers import register_handlers
 from app.recurring import load_recurring_rules, run_recurring_check
 
+logger = logging.getLogger(__name__)
+
 
 def _local_time(hour: int, minute: int, tz_name: str) -> time:
     return time(hour=hour, minute=minute, tzinfo=ZoneInfo(tz_name))
@@ -34,22 +36,42 @@ async def recurring_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.bot_data["settings"]
     snapshot_dir = str(Path(settings.db_path).parent)
-    snapshot_path = create_snapshot(settings.db_path, snapshot_dir)
+    try:
+        snapshot_path = create_snapshot(settings.db_path, snapshot_dir)
 
-    if settings.backup_channel_id is not None:
-        encrypted_path = encrypt_file(snapshot_path, settings.backup_encryption_key)
-        try:
-            with open(encrypted_path, "rb") as f:
-                await context.bot.send_document(
-                    chat_id=settings.backup_channel_id,
-                    document=f,
-                    filename=encrypted_path.name,
-                    caption=f"finappa backup {snapshot_path.stem.removeprefix('backup-')}",
-                )
-        finally:
-            encrypted_path.unlink(missing_ok=True)
+        if settings.backup_channel_id is not None:
+            encrypted_path = encrypt_file(snapshot_path, settings.backup_encryption_key)
+            try:
+                with open(encrypted_path, "rb") as f:
+                    await context.bot.send_document(
+                        chat_id=settings.backup_channel_id,
+                        document=f,
+                        filename=encrypted_path.name,
+                        caption=f"finappa backup {snapshot_path.stem.removeprefix('backup-')}",
+                    )
+            finally:
+                encrypted_path.unlink(missing_ok=True)
+    except Exception as exc:
+        logger.exception("Backup job failed")
+        await context.bot.send_message(
+            chat_id=settings.allowed_telegram_user_id,
+            text=f"Backup failed: {exc}",
+        )
+    finally:
+        # Always prune, even on failure — the local snapshot from
+        # create_snapshot (if it succeeded) should still count toward
+        # pruning even when the remote send failed; don't lose it or let
+        # snapshots accumulate forever under a persistent failure.
+        prune_snapshots(snapshot_dir, keep=7)
 
-    prune_snapshots(snapshot_dir, keep=7)
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error("Unhandled exception while processing update", exc_info=context.error)
+    settings: Settings = context.bot_data["settings"]
+    await context.bot.send_message(
+        chat_id=settings.allowed_telegram_user_id,
+        text=f"Something went wrong: {context.error}",
+    )
 
 
 def build_application(settings: Settings, recurring_yaml_path: str = "recurring.yml") -> Application:
@@ -62,12 +84,13 @@ def build_application(settings: Settings, recurring_yaml_path: str = "recurring.
 
     application = ApplicationBuilder().token(settings.telegram_bot_token).build()
     application.bot_data["session_factory"] = session_factory
-    application.bot_data["openai_client"] = OpenAI(api_key=settings.openai_api_key)
+    application.bot_data["openai_client"] = OpenAI(api_key=settings.openai_api_key, timeout=30.0)
     application.bot_data["openai_model"] = settings.openai_model
     application.bot_data["timezone"] = settings.timezone
     application.bot_data["settings"] = settings
 
     register_handlers(application, settings.allowed_telegram_user_id)
+    application.add_error_handler(error_handler)
 
     application.job_queue.run_daily(
         recurring_job, time=_local_time(6, 0, settings.timezone), name="recurring_check"
