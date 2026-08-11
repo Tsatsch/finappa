@@ -5,3 +5,4 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data
+      - ./recurring.yml:/app/recurring.yml:ro
