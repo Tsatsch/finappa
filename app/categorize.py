@@ -16,6 +16,15 @@ def _normalize(name: str) -> str:
     return name.strip().lower()
 
 
+def find_matching_merchant(session: Session, merchant_name: str) -> Merchant | None:
+    if not merchant_name:
+        return None
+    normalized = _normalize(merchant_name)
+    known = {m.name: m for m in session.query(Merchant).all()}
+    match = difflib.get_close_matches(normalized, known.keys(), n=1, cutoff=FUZZY_CUTOFF)
+    return known[match[0]] if match else None
+
+
 def resolve_category(
     session: Session, merchant_name: str, llm_category: CategoryName
 ) -> tuple[Merchant | None, Category]:
@@ -23,16 +32,13 @@ def resolve_category(
         category = session.query(Category).filter_by(name=llm_category.value).one()
         return None, category
 
-    normalized = _normalize(merchant_name)
-    known = {m.name: m for m in session.query(Merchant).all()}
-    match = difflib.get_close_matches(normalized, known.keys(), n=1, cutoff=FUZZY_CUTOFF)
-    if match:
-        merchant = known[match[0]]
-        category = session.get(Category, merchant.category_id)
-        return merchant, category
+    existing = find_matching_merchant(session, merchant_name)
+    if existing:
+        category = session.get(Category, existing.category_id)
+        return existing, category
 
     category = session.query(Category).filter_by(name=llm_category.value).one()
-    merchant = Merchant(name=normalized, display_name=merchant_name, category_id=category.id)
+    merchant = Merchant(name=_normalize(merchant_name), display_name=merchant_name, category_id=category.id)
     session.add(merchant)
     session.flush()
     return merchant, category
@@ -45,12 +51,9 @@ def recat_merchant(session: Session, merchant_name: str, category_name: str) -> 
         valid = ", ".join(c.value for c in CategoryName)
         raise RecatError(f"Unknown category '{category_name}'. Valid categories: {valid}")
 
-    normalized = _normalize(merchant_name)
-    known = {m.name: m for m in session.query(Merchant).all()}
-    match = difflib.get_close_matches(normalized, known.keys(), n=1, cutoff=FUZZY_CUTOFF)
-    if not match:
+    merchant = find_matching_merchant(session, merchant_name)
+    if merchant is None:
         raise RecatError(f"No merchant matching '{merchant_name}' found.")
-    merchant = known[match[0]]
 
     category = session.query(Category).filter_by(name=category_enum.value).one()
     merchant.category_id = category.id

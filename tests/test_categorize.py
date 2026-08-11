@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.categories import CategoryName
-from app.categorize import RecatError, recat_merchant, resolve_category
+from app.categorize import RecatError, find_matching_merchant, recat_merchant, resolve_category
 from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
 
 
@@ -82,3 +82,22 @@ def test_recat_unknown_category_raises(session):
 def test_recat_unknown_merchant_raises(session):
     with pytest.raises(RecatError, match="No merchant"):
         recat_merchant(session, "Nonexistent", "Dining")
+
+
+def test_find_matching_merchant_returns_none_when_no_match(session):
+    assert find_matching_merchant(session, "Rewe") is None
+
+
+def test_find_matching_merchant_returns_none_for_empty_name(session):
+    resolve_category(session, "Rewe", CategoryName.GROCERIES)
+    session.commit()
+    assert find_matching_merchant(session, "") is None
+
+
+def test_find_matching_merchant_returns_match(session):
+    resolve_category(session, "Rewe", CategoryName.GROCERIES)
+    session.commit()
+    # Verified: difflib.SequenceMatcher(None, "rewe", "rewwe").ratio() = 0.8889 > 0.85
+    merchant = find_matching_merchant(session, "Rewwe")
+    assert merchant is not None
+    assert merchant.name == "rewe"
