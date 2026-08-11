@@ -1,13 +1,23 @@
 import csv
 import io
-from unittest.mock import MagicMock
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.categories import CategoryName
 from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
 from app.extractor import ExtractionResult, TransactionItem
-from app.handlers import export_csv, process_message, recat_text, summary_text
+from app.handlers import (
+    PendingConfirmation,
+    confirm_category,
+    export_csv,
+    handle_category_confirmation,
+    process_message,
+    recat_text,
+    summary_text,
+)
 
 
 @pytest.fixture
@@ -161,3 +171,122 @@ def test_recat_text_updates_and_reports_count(session_factory):
 def test_recat_text_unknown_merchant_reports_error(session_factory):
     reply = recat_text(session_factory, "Nonexistent", "Dining")
     assert "No merchant" in reply
+
+
+def test_confirm_category_inserts_and_reports(session_factory):
+    pending = PendingConfirmation(
+        pending_id="abc123", ts=datetime.now(timezone.utc), amount_cents=1500,
+        type="EXPENSE", merchant="Obscure Shop", notes=None,
+    )
+    reply = confirm_category(session_factory, pending, "Shopping", "Europe/Berlin", update_id=99)
+
+    assert "15,00" in reply
+    assert "Shopping" in reply
+    with session_factory() as session:
+        shopping = session.query(Category).filter_by(name="Shopping").one()
+        txn = session.query(Transaction).one()
+        assert txn.amount_cents == 1500
+        assert txn.category_id == shopping.id
+        assert txn.source_update_id == 99
+
+
+def test_confirm_category_uses_pending_ts_not_now(session_factory):
+    original_ts = datetime(2026, 1, 15, 10, 0, tzinfo=timezone.utc)
+    pending = PendingConfirmation(
+        pending_id="abc123", ts=original_ts, amount_cents=1000,
+        type="EXPENSE", merchant="Shop", notes=None,
+    )
+    confirm_category(session_factory, pending, "Shopping", "Europe/Berlin", update_id=1)
+    with session_factory() as session:
+        txn = session.query(Transaction).one()
+        # Transaction.ts is a plain (non-timezone-aware) DateTime column; SQLite
+        # always strips tzinfo on read-back regardless, so reattach UTC before
+        # comparing — this is a pre-existing characteristic of the schema, not
+        # something confirm_category controls.
+        assert txn.ts.replace(tzinfo=timezone.utc) == original_ts
+
+
+def _fake_callback_context(session_factory, pending_map, allowed_user_id=12345):
+    settings = SimpleNamespace(allowed_telegram_user_id=allowed_user_id)
+    return SimpleNamespace(
+        bot_data={
+            "session_factory": session_factory,
+            "pending_confirmations": pending_map,
+            "timezone": "Europe/Berlin",
+            "settings": settings,
+        }
+    )
+
+
+async def test_handle_category_confirmation_inserts_on_valid_choice(session_factory):
+    pending = PendingConfirmation(
+        pending_id="abc123", ts=datetime.now(timezone.utc), amount_cents=1500,
+        type="EXPENSE", merchant="Obscure Shop", notes=None,
+    )
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=12345), data="pconf:abc123:Shopping",
+        answer=AsyncMock(), edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(callback_query=query, update_id=999)
+    context = _fake_callback_context(session_factory, {"abc123": pending})
+
+    await handle_category_confirmation(update, context)
+
+    query.answer.assert_awaited_once()
+    query.edit_message_text.assert_awaited_once()
+    reply_text = query.edit_message_text.call_args[0][0]
+    assert "Shopping" in reply_text
+    assert "abc123" not in context.bot_data["pending_confirmations"]
+    with session_factory() as session:
+        assert session.query(Transaction).count() == 1
+
+
+async def test_handle_category_confirmation_skip_discards_without_logging(session_factory):
+    pending = PendingConfirmation(
+        pending_id="abc123", ts=datetime.now(timezone.utc), amount_cents=1500,
+        type="EXPENSE", merchant="Obscure Shop", notes=None,
+    )
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=12345), data="pconf:abc123:SKIP",
+        answer=AsyncMock(), edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(callback_query=query, update_id=1000)
+    context = _fake_callback_context(session_factory, {"abc123": pending})
+
+    await handle_category_confirmation(update, context)
+
+    assert "Discarded" in query.edit_message_text.call_args[0][0]
+    with session_factory() as session:
+        assert session.query(Transaction).count() == 0
+
+
+async def test_handle_category_confirmation_expired_pending_id(session_factory):
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=12345), data="pconf:doesnotexist:Shopping",
+        answer=AsyncMock(), edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(callback_query=query, update_id=1001)
+    context = _fake_callback_context(session_factory, {})
+
+    await handle_category_confirmation(update, context)
+
+    assert "expired" in query.edit_message_text.call_args[0][0]
+
+
+async def test_handle_category_confirmation_ignores_wrong_user(session_factory):
+    pending = PendingConfirmation(
+        pending_id="abc123", ts=datetime.now(timezone.utc), amount_cents=1500,
+        type="EXPENSE", merchant="Obscure Shop", notes=None,
+    )
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=99999), data="pconf:abc123:Shopping",
+        answer=AsyncMock(), edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(callback_query=query, update_id=1002)
+    context = _fake_callback_context(session_factory, {"abc123": pending})
+
+    await handle_category_confirmation(update, context)
+
+    query.answer.assert_not_awaited()
+    query.edit_message_text.assert_not_awaited()
+    assert "abc123" in context.bot_data["pending_confirmations"]

@@ -6,10 +6,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from openai import OpenAI
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from app.analytics import format_cents, format_summary_message, monthly_summary
+from app.categories import CategoryName
 from app.categorize import RecatError, find_matching_merchant, recat_merchant, resolve_category
 from app.db import Category, Merchant, Transaction, get_sessionmaker
 from app.extractor import ExtractionError, extract_transactions
@@ -97,6 +105,49 @@ def process_message(
     return ProcessResult(reply_text=reply_text, pending=pending)
 
 
+def confirm_category(
+    session_factory, pending: PendingConfirmation, category_name: str, tz_name: str, update_id: int
+) -> str:
+    category_enum = CategoryName(category_name)
+    with session_factory() as session:
+        merchant, category = resolve_category(session, pending.merchant, category_enum)
+        session.add(
+            Transaction(
+                ts=pending.ts,
+                amount_cents=pending.amount_cents,
+                type=pending.type,
+                merchant_id=merchant.id if merchant else None,
+                category_id=category.id,
+                notes=pending.notes,
+                source="message",
+                source_update_id=update_id,
+            )
+        )
+        session.commit()
+        summary = monthly_summary(session, tz_name, at=pending.ts)
+
+    label = pending.merchant or pending.notes or pending.type.title()
+    return (
+        f"Logged: {format_cents(pending.amount_cents)} · {label} · {category_name}\n"
+        f"Net this month: {format_cents(summary['net_cents'])}"
+    )
+
+
+def _pending_prompt_text(pending: PendingConfirmation) -> str:
+    label = pending.merchant or pending.notes or pending.type.title()
+    return f"Not sure about the category for {format_cents(pending.amount_cents)} · {label} — which fits?"
+
+
+def _category_keyboard(pending_id: str) -> InlineKeyboardMarkup:
+    buttons = [
+        InlineKeyboardButton(cat.value, callback_data=f"pconf:{pending_id}:{cat.value}")
+        for cat in CategoryName
+    ]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton("Don't log this", callback_data=f"pconf:{pending_id}:SKIP")])
+    return InlineKeyboardMarkup(rows)
+
+
 def summary_text(session_factory, tz_name: str) -> str:
     with session_factory() as session:
         summary = monthly_summary(session, tz_name)
@@ -160,7 +211,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # process_message makes a blocking OpenAI HTTP call and blocking SQLite
     # work; run it off the event loop so a slow/hung OpenAI call doesn't stall
     # polling, other commands, and background jobs.
-    reply = await asyncio.to_thread(
+    result = await asyncio.to_thread(
         process_message,
         context.bot_data["session_factory"],
         context.bot_data["openai_client"],
@@ -169,7 +220,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         update.message.text,
         update.update_id,
     )
-    await update.message.reply_text(reply)
+    if result.reply_text:
+        await update.message.reply_text(result.reply_text)
+    for pending in result.pending:
+        context.bot_data["pending_confirmations"][pending.pending_id] = pending
+        await update.message.reply_text(
+            _pending_prompt_text(pending), reply_markup=_category_keyboard(pending.pending_id)
+        )
 
 
 async def handle_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -201,6 +258,31 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(HELP_TEXT)
 
 
+async def handle_category_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query.from_user.id != context.bot_data["settings"].allowed_telegram_user_id:
+        return
+    await query.answer()
+    _, pending_id, choice = query.data.split(":", 2)
+    pending = context.bot_data["pending_confirmations"].pop(pending_id, None)
+    if pending is None:
+        await query.edit_message_text("This confirmation expired — just resend the message.")
+        return
+    if choice == "SKIP":
+        label = pending.merchant or pending.notes or "that item"
+        await query.edit_message_text(f"Discarded: {label}, not logged.")
+        return
+    reply = await asyncio.to_thread(
+        confirm_category,
+        context.bot_data["session_factory"],
+        pending,
+        choice,
+        context.bot_data["timezone"],
+        update.update_id,
+    )
+    await query.edit_message_text(reply)
+
+
 def register_handlers(application: Application, allowed_user_id: int) -> None:
     # filters.UpdateType.MESSAGE excludes edited messages. Without it, PTB
     # matches update.effective_message, which falls back to edited_message —
@@ -218,3 +300,4 @@ def register_handlers(application: Application, allowed_user_id: int) -> None:
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND & user_filter, handle_message)
     )
+    application.add_handler(CallbackQueryHandler(handle_category_confirmation, pattern=r"^pconf:"))
