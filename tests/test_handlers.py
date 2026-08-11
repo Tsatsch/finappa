@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.categories import CategoryName
-from app.db import Category, Transaction, get_sessionmaker, init_db, make_engine
+from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
 from app.extractor import ExtractionResult, TransactionItem
 from app.handlers import export_csv, process_message, recat_text, summary_text
 
@@ -30,7 +30,8 @@ def _stub_client(*items: TransactionItem) -> MagicMock:
 def _item(**overrides) -> TransactionItem:
     defaults = dict(
         amount=30.0, currency="EUR", merchant="Rewe",
-        category=CategoryName.GROCERIES, category_confident=True, type="EXPENSE", notes=None,
+        category=CategoryName.GROCERIES, category_confident=True,
+        type="EXPENSE", notes=None,
     )
     defaults.update(overrides)
     return TransactionItem(**defaults)
@@ -38,12 +39,13 @@ def _item(**overrides) -> TransactionItem:
 
 def test_process_message_logs_and_replies(session_factory):
     client = _stub_client(_item())
-    reply = process_message(
+    result = process_message(
         session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe", update_id=42
     )
 
-    assert "Logged 1" in reply
-    assert "Rewe" in reply
+    assert "Logged 1" in result.reply_text
+    assert "Rewe" in result.reply_text
+    assert result.pending == []
     with session_factory() as session:
         txn = session.query(Transaction).one()
         assert txn.amount_cents == 3000
@@ -52,11 +54,11 @@ def test_process_message_logs_and_replies(session_factory):
 
 def test_process_message_rejection_logs_nothing(session_factory):
     client = _stub_client(_item(currency="USD"))
-    reply = process_message(
+    result = process_message(
         session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30 USD Rewe", update_id=1
     )
 
-    assert "EUR" in reply
+    assert "EUR" in result.reply_text
     with session_factory() as session:
         assert session.query(Transaction).count() == 0
 
@@ -66,13 +68,64 @@ def test_process_message_multi_item_rejection_logs_nothing(session_factory):
     # whole message. Regression guard for the case a single-item test can't
     # cover — the valid item must not get logged just because it came first.
     client = _stub_client(_item(), _item(currency="USD", merchant="Shell"))
-    reply = process_message(
+    result = process_message(
         session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe and 15 USD Shell", update_id=1
     )
 
-    assert "EUR" in reply
+    assert "EUR" in result.reply_text
     with session_factory() as session:
         assert session.query(Transaction).count() == 0
+
+
+def test_process_message_holds_uncertain_new_merchant(session_factory):
+    client = _stub_client(_item(merchant="Obscure Shop LLC", category_confident=False))
+    result = process_message(
+        session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ at that place", update_id=1
+    )
+
+    assert result.reply_text is None
+    assert len(result.pending) == 1
+    pending = result.pending[0]
+    assert pending.amount_cents == 3000
+    assert pending.merchant == "Obscure Shop LLC"
+    assert pending.type == "EXPENSE"
+    with session_factory() as session:
+        assert session.query(Transaction).count() == 0
+        assert session.query(Merchant).count() == 0
+
+
+def test_process_message_mixed_confident_and_uncertain(session_factory):
+    client = _stub_client(
+        _item(merchant="Rewe", category_confident=True),
+        _item(merchant="Obscure Shop LLC", category_confident=False, amount=15.0),
+    )
+    result = process_message(
+        session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe and 15€ somewhere", update_id=1
+    )
+
+    assert "Logged 1" in result.reply_text
+    assert "Rewe" in result.reply_text
+    assert len(result.pending) == 1
+    assert result.pending[0].merchant == "Obscure Shop LLC"
+    with session_factory() as session:
+        assert session.query(Transaction).count() == 1
+
+
+def test_process_message_known_merchant_ignores_low_confidence(session_factory):
+    client = _stub_client(_item(merchant="Rewe", category_confident=True))
+    process_message(session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe", update_id=1)
+
+    client2 = _stub_client(
+        _item(merchant="Rewe", category_confident=False, category=CategoryName.DINING)
+    )
+    result = process_message(
+        session_factory, client2, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe again", update_id=2
+    )
+
+    assert result.reply_text is not None
+    assert result.pending == []
+    with session_factory() as session:
+        assert session.query(Transaction).count() == 2
 
 
 def test_summary_text_reports_zero_on_empty_ledger(session_factory):

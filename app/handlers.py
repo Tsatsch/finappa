@@ -1,6 +1,8 @@
 import asyncio
 import csv
 import io
+import secrets
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from openai import OpenAI
@@ -8,7 +10,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.analytics import format_cents, format_summary_message, monthly_summary
-from app.categorize import RecatError, recat_merchant, resolve_category
+from app.categorize import RecatError, find_matching_merchant, recat_merchant, resolve_category
 from app.db import Category, Merchant, Transaction, get_sessionmaker
 from app.extractor import ExtractionError, extract_transactions
 
@@ -23,20 +25,52 @@ HELP_TEXT = (
 )
 
 
+@dataclass
+class PendingConfirmation:
+    pending_id: str
+    ts: datetime
+    amount_cents: int
+    type: str
+    merchant: str
+    notes: str | None
+
+
+@dataclass
+class ProcessResult:
+    reply_text: str | None
+    pending: list[PendingConfirmation]
+
+
 def process_message(
     session_factory, openai_client: OpenAI, openai_model: str, tz_name: str, text: str, update_id: int
-) -> str:
+) -> ProcessResult:
     try:
         items = extract_transactions(openai_client, openai_model, text)
     except ExtractionError as exc:
-        return exc.user_message
+        return ProcessResult(reply_text=exc.user_message, pending=[])
 
     now = datetime.now(timezone.utc)
     lines = []
+    pending: list[PendingConfirmation] = []
     with session_factory() as session:
         for item in items:
-            merchant, category = resolve_category(session, item.merchant, item.category)
             amount_cents = round(item.amount * 100)
+            existing_merchant = find_matching_merchant(session, item.merchant)
+
+            if existing_merchant is None and not item.category_confident:
+                pending.append(
+                    PendingConfirmation(
+                        pending_id=secrets.token_hex(4),
+                        ts=now,
+                        amount_cents=amount_cents,
+                        type=item.type,
+                        merchant=item.merchant,
+                        notes=item.notes,
+                    )
+                )
+                continue
+
+            merchant, category = resolve_category(session, item.merchant, item.category)
             session.add(
                 Transaction(
                     ts=now,
@@ -52,11 +86,15 @@ def process_message(
             label = item.merchant or item.notes or item.type.title()
             lines.append(f"• {format_cents(amount_cents)} · {label} · {category.name}")
         session.commit()
-        summary = monthly_summary(session, tz_name, at=now)
 
-    header = f"Logged {len(items)}:"
-    net_line = f"Net this month: {format_cents(summary['net_cents'])}"
-    return "\n".join([header, *lines, net_line])
+        reply_text = None
+        if lines:
+            summary = monthly_summary(session, tz_name, at=now)
+            header = f"Logged {len(lines)}:"
+            net_line = f"Net this month: {format_cents(summary['net_cents'])}"
+            reply_text = "\n".join([header, *lines, net_line])
+
+    return ProcessResult(reply_text=reply_text, pending=pending)
 
 
 def summary_text(session_factory, tz_name: str) -> str:
