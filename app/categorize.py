@@ -46,9 +46,11 @@ def recat_merchant(session: Session, merchant_name: str, category_name: str) -> 
         raise RecatError(f"Unknown category '{category_name}'. Valid categories: {valid}")
 
     normalized = _normalize(merchant_name)
-    merchant = session.query(Merchant).filter_by(name=normalized).one_or_none()
-    if merchant is None:
+    known = {m.name: m for m in session.query(Merchant).all()}
+    match = difflib.get_close_matches(normalized, known.keys(), n=1, cutoff=FUZZY_CUTOFF)
+    if not match:
         raise RecatError(f"No merchant matching '{merchant_name}' found.")
+    merchant = known[match[0]]
 
     category = session.query(Category).filter_by(name=category_enum.value).one()
     merchant.category_id = category.id
