@@ -92,6 +92,7 @@ function selectedFilters() {
 
 function applyFilters(transactions, filters) {
   return transactions.filter((t) => {
+    if (t.type === "REFUND") return false;
     if (filters.year !== null && t.local_year !== filters.year) return false;
     if (filters.month !== null && t.local_month !== filters.month) return false;
     if (filters.category !== null && t.category !== filters.category) return false;
@@ -111,9 +112,6 @@ function summarize(transactions) {
     } else if (t.type === "EXPENSE") {
       expenses += t.amount_cents;
       byCategory[t.category] = (byCategory[t.category] || 0) + t.amount_cents;
-    } else if (t.type === "REFUND") {
-      expenses -= t.amount_cents;
-      byCategory[t.category] = (byCategory[t.category] || 0) - t.amount_cents;
     }
   }
 
@@ -178,7 +176,6 @@ function renderDailyChart(transactions, filters) {
   for (const t of transactions) {
     const day = Number(t.local_date.slice(8, 10));
     if (t.type === "EXPENSE") byDay[day - 1] += t.amount_cents;
-    if (t.type === "REFUND") byDay[day - 1] -= t.amount_cents;
   }
 
   upsertChart("daily", $("chart-daily"), {
@@ -215,7 +212,6 @@ function renderMonthlyChart(transactions) {
     const key = monthKey(t);
     if (t.type === "INCOME") income[key] += t.amount_cents;
     if (t.type === "EXPENSE") expenses[key] += t.amount_cents;
-    if (t.type === "REFUND") expenses[key] -= t.amount_cents;
   }
 
   upsertChart("monthly", $("chart-monthly"), {
@@ -249,7 +245,7 @@ function renderMonthlyChart(transactions) {
 function renderCategoryTrend(transactions) {
   const keys = uniqueSorted(transactions.map(monthKey));
   const categories = uniqueSorted(
-    transactions.filter((t) => t.type === "EXPENSE" || t.type === "REFUND").map((t) => t.category),
+    transactions.filter((t) => t.type === "EXPENSE").map((t) => t.category),
   );
   const series = Object.fromEntries(
     categories.map((c) => [c, Object.fromEntries(keys.map((k) => [k, 0]))]),
@@ -259,7 +255,6 @@ function renderCategoryTrend(transactions) {
     if (!series[t.category]) continue;
     const key = monthKey(t);
     if (t.type === "EXPENSE") series[t.category][key] += t.amount_cents;
-    if (t.type === "REFUND") series[t.category][key] -= t.amount_cents;
   }
 
   upsertChart("categoryTrend", $("chart-category-trend"), {
