@@ -319,3 +319,14 @@ async def test_handle_category_confirmation_ignores_wrong_user(session_factory):
     query.answer.assert_not_awaited()
     query.edit_message_text.assert_not_awaited()
     assert "abc123" in context.bot_data["pending_confirmations"]
+
+
+async def test_register_bot_commands_sets_telegram_menu():
+    from app.handlers import BOT_COMMANDS, register_bot_commands
+
+    application = SimpleNamespace(bot=AsyncMock())
+    await register_bot_commands(application)
+
+    application.bot.set_my_commands.assert_awaited_once_with(BOT_COMMANDS)
+    command_names = {cmd.command for cmd in BOT_COMMANDS}
+    assert command_names == {"start", "help", "summary", "undo", "export", "recat"}

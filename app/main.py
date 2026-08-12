@@ -10,7 +10,7 @@ from app.analytics import format_cents
 from app.backup import create_snapshot, encrypt_file, prune_snapshots
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker, init_db, make_engine
-from app.handlers import register_handlers
+from app.handlers import register_bot_commands, register_handlers
 from app.recurring import load_recurring_rules, run_recurring_check
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,12 @@ def build_application(settings: Settings, recurring_yaml_path: str = "recurring.
     with session_factory() as session:
         load_recurring_rules(session, recurring_yaml_path)
 
-    application = ApplicationBuilder().token(settings.telegram_bot_token).build()
+    application = (
+        ApplicationBuilder()
+        .token(settings.telegram_bot_token)
+        .post_init(register_bot_commands)
+        .build()
+    )
     application.bot_data["session_factory"] = session_factory
     application.bot_data["openai_client"] = OpenAI(api_key=settings.openai_api_key, timeout=30.0)
     application.bot_data["openai_model"] = settings.openai_model

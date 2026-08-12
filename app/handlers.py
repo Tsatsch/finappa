@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from openai import OpenAI
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -31,6 +31,15 @@ HELP_TEXT = (
     "/export — CSV of all transactions\n"
     "/recat <merchant> <category> — fix a merchant's category, past and future\n"
 )
+
+BOT_COMMANDS = [
+    BotCommand("start", "Show help and how to log transactions"),
+    BotCommand("help", "Show help and how to log transactions"),
+    BotCommand("summary", "This month's income, expenses, and net"),
+    BotCommand("undo", "Remove the last message's transactions"),
+    BotCommand("export", "Download CSV of all transactions"),
+    BotCommand("recat", "Fix a merchant's category, past and future"),
+]
 
 
 @dataclass
@@ -290,6 +299,10 @@ async def handle_category_confirmation(update: Update, context: ContextTypes.DEF
         update.update_id,
     )
     await query.edit_message_text(reply)
+
+
+async def register_bot_commands(application: Application) -> None:
+    await application.bot.set_my_commands(BOT_COMMANDS)
 
 
 def register_handlers(application: Application, allowed_user_id: int) -> None:
