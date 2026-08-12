@@ -52,13 +52,16 @@ Architecture notes for AI coding tools: [`AGENTS.md`](AGENTS.md).
    docker compose logs -f --tail=50
    ```
 9. Send `/help` to the bot in Telegram to confirm it's alive.
-10. Open the stats page:
-    ```text
-    http://<host-public-ip>.nip.io:<STATS_PORT>/
+10. Open the stats page. On a host that already runs barcheck with Caddy,
+    prefer HTTPS — add the block in [`deploy/caddy-finappa.caddy`](deploy/caddy-finappa.caddy)
+    to your barcheck Caddyfile, point `finappa.<your-domain>` at the server IP,
+    set `STATS_CADDY_NETWORK` in `.env` (default `barcheck_default`), then:
+    ```bash
+    docker compose up -d --build
     ```
-    (default port `8080`). Enter the Basic Auth credentials from `.env`.
-    Docker publishes this port past `ufw` — Basic Auth is the access control.
-    Traffic is plain HTTP; treat the password accordingly.
+    Browse `https://finappa.<your-domain>/` and sign in with Basic Auth.
+    Caddy terminates TLS; finappa stats stays on the shared Docker network only
+    (`127.0.0.1:${STATS_PORT}` on the host is for local curl debugging).
 ## Host hardening
 
 The bot itself has no listening ports and no public identity, so the VPS's SSH

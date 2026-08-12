@@ -1,0 +1,21 @@
+# Append to your barcheck Caddyfile (the one mounted into barcheck-caddy).
+# Replace YOURDOMAIN with the domain you already use for barcheck, e.g. example.com
+# → finappa.example.com
+#
+# Prerequisites:
+# 1. finappa stats joins the barcheck Docker network (see docker-compose.yml).
+# 2. DNS A record: finappa.YOURDOMAIN → your Hetzner server public IP.
+# 3. Port 443 is already open for barcheck-caddy (no new firewall rule needed).
+#
+# Discover the barcheck network name if unsure:
+#   docker inspect barcheck-caddy-1 --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}'
+#
+# After editing the Caddyfile:
+#   cd /opt/barcheck   # or wherever barcheck lives
+#   docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+#   # or, if your setup uses a full restart instead:
+#   docker compose restart caddy
+
+finappa.YOURDOMAIN.com {
+	reverse_proxy finappa-stats-1:8080
+}
