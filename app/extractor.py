@@ -1,4 +1,6 @@
+from datetime import date, datetime, timezone
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from openai import OpenAI
 from pydantic import BaseModel
@@ -16,6 +18,7 @@ class TransactionItem(BaseModel):
     category_confident: bool
     type: Literal["EXPENSE", "INCOME"]
     notes: str | None = None
+    local_date: date | None = None
 
 
 class ExtractionResult(BaseModel):
@@ -38,7 +41,10 @@ SYSTEM_PROMPT = (
     "the amount, currency (ISO 4217 code, e.g. EUR, USD), the merchant or "
     "payer/payee name (empty string if there is none, e.g. a salary deposit), "
     "the category (pick the single best fit from the given list), the type "
-    "(EXPENSE or INCOME), and any short note worth keeping. If the "
+    "(EXPENSE or INCOME), any short note worth keeping, and local_date (YYYY-MM-DD) "
+    "when the user states when something happened (e.g. yesterday, last Monday, "
+    "Aug 5) — use the calendar day in the user's local sense; leave local_date null "
+    "when no date is mentioned. If the "
     "message describes no transactions, return an empty list. Also set "
     "category_confident to true or false: false only when the category is a "
     "genuine judgment call between two or more categories, or the merchant "
@@ -73,9 +79,10 @@ def _echo_items(items: list[TransactionItem]) -> str:
     return " · ".join(parts)
 
 
-def validate_extraction(result: ExtractionResult) -> list[TransactionItem]:
+def validate_extraction(result: ExtractionResult, tz_name: str = "Europe/Berlin") -> list[TransactionItem]:
     if not result.transactions:
         raise ExtractionError("I didn't find any transactions in that message.")
+    today = datetime.now(timezone.utc).astimezone(ZoneInfo(tz_name)).date()
     for item in result.transactions:
         if item.currency != "EUR":
             raise ExtractionError(
@@ -88,13 +95,20 @@ def validate_extraction(result: ExtractionResult) -> list[TransactionItem]:
                 f"Nothing logged — an amount of {item.amount} doesn't look right.\n"
                 f"I read: {_echo_items(result.transactions)}"
             )
+        if item.local_date is not None and item.local_date > today:
+            raise ExtractionError(
+                "Nothing logged — that date is in the future.\n"
+                f"I read: {_echo_items(result.transactions)}"
+            )
     return result.transactions
 
 
-def extract_transactions(client: OpenAI, model: str, text: str) -> list[TransactionItem]:
+def extract_transactions(
+    client: OpenAI, model: str, text: str, tz_name: str = "Europe/Berlin"
+) -> list[TransactionItem]:
     try:
         result = _client_parse(client, model, text)
-        return validate_extraction(result)
+        return validate_extraction(result, tz_name)
     except ExtractionError:
         raise
     except Exception as exc:

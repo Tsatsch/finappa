@@ -1,11 +1,12 @@
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.analytics import monthly_summary
 from app.categories import CategoryName
 from app.categorize import resolve_category
 from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
@@ -19,6 +20,7 @@ from app.handlers import (
     recat_text,
     summary_text,
 )
+from app.ledger import ts_from_local_date
 
 
 @pytest.fixture
@@ -319,3 +321,22 @@ async def test_handle_category_confirmation_ignores_wrong_user(session_factory):
     query.answer.assert_not_awaited()
     query.edit_message_text.assert_not_awaited()
     assert "abc123" in context.bot_data["pending_confirmations"]
+
+
+def test_process_message_backdated_item_lands_in_correct_month(session_factory):
+    client = _stub_client(_item(local_date=date(2026, 7, 15)))
+    result = process_message(
+        session_factory, client, "gpt-4o-mini", "Europe/Berlin",
+        "on July 15 I spent 30 at Rewe", update_id=1,
+    )
+    assert "2026-07-15" in result.reply_text
+    with session_factory() as session:
+        txn = session.query(Transaction).one()
+        expected = ts_from_local_date(date(2026, 7, 15), "Europe/Berlin")
+        assert txn.ts.replace(tzinfo=timezone.utc) == expected
+
+    july = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
+    august = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
+    with session_factory() as session:
+        assert monthly_summary(session, "Europe/Berlin", at=july)["expense_cents"] == 3000
+        assert monthly_summary(session, "Europe/Berlin", at=august)["expense_cents"] == 0

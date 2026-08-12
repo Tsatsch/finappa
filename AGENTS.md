@@ -91,6 +91,7 @@ Compose; the bot service still has no `ports:` key.
 | `app/recurring.py` | `recurring.yml` loader, idempotent daily recurring check |
 | `app/backup.py` | `VACUUM INTO` snapshotting, Fernet encryption, local pruning |
 | `app/handlers.py` | Message pipeline + all Telegram commands (thin async wrappers over plain functions) |
+| `app/ledger.py` | Transaction list/delete/edit helpers and backdating timestamp math |
 | `app/main.py` | Wires everything, registers the two `JobQueue` jobs, entrypoint |
 | `stats/` | Read-only stats one-pager (Starlette); sibling compose service with Basic Auth |
 
