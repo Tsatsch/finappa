@@ -21,12 +21,23 @@ from app.categories import CategoryName
 from app.categorize import RecatError, find_matching_merchant, recat_merchant, resolve_category
 from app.db import Category, Merchant, Transaction, get_sessionmaker
 from app.extractor import ExtractionError, extract_transactions
+from app.ledger import (
+    EDIT_USAGE,
+    delete_text,
+    edit_text,
+    logged_item_line,
+    recent_text,
+    resolve_transaction_ts,
+)
 
 HELP_TEXT = (
     "Send a message describing one or more transactions, e.g. "
-    '"30€ Rewe and 15€ fuel".\n\n'
+    '"30€ Rewe and 15€ fuel" or "yesterday 30€ Rewe".\n\n'
     "Commands:\n"
     "/summary — this month's income, expenses, and net\n"
+    "/recent [n] — list recent transactions with IDs (default 10)\n"
+    "/delete <id> — remove one transaction\n"
+    "/edit <id> amount|category|date <value> — fix a transaction\n"
     "/undo — remove the last message's transactions\n"
     "/export — CSV of all transactions\n"
     "/recat <merchant> <category> — fix a merchant's category, past and future\n"
@@ -66,7 +77,7 @@ def process_message(
     session_factory, openai_client: OpenAI, openai_model: str, tz_name: str, text: str, update_id: int
 ) -> ProcessResult:
     try:
-        items = extract_transactions(openai_client, openai_model, text)
+        items = extract_transactions(openai_client, openai_model, text, tz_name)
     except ExtractionError as exc:
         return ProcessResult(reply_text=exc.user_message, pending=[])
 
@@ -76,13 +87,14 @@ def process_message(
     with session_factory() as session:
         for item in items:
             amount_cents = round(item.amount * 100)
+            ts = resolve_transaction_ts(item.local_date, tz_name, now)
             existing_merchant = find_matching_merchant(session, item.merchant)
 
             if existing_merchant is None and not item.category_confident:
                 pending.append(
                     PendingConfirmation(
                         pending_id=secrets.token_hex(4),
-                        ts=now,
+                        ts=ts,
                         amount_cents=amount_cents,
                         type=item.type,
                         merchant=item.merchant,
@@ -94,7 +106,7 @@ def process_message(
             merchant, category = resolve_category(session, item.merchant, item.category)
             session.add(
                 Transaction(
-                    ts=now,
+                    ts=ts,
                     amount_cents=amount_cents,
                     type=item.type,
                     merchant_id=merchant.id if merchant else None,
@@ -105,7 +117,7 @@ def process_message(
                 )
             )
             label = item.merchant or item.notes or item.type.title()
-            lines.append(f"• {format_cents(amount_cents)} · {label} · {category.name}")
+            lines.append(logged_item_line(amount_cents, label, category.name, ts, tz_name))
         session.commit()
 
         reply_text = None
@@ -272,6 +284,48 @@ async def handle_recat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(reply)
 
 
+async def handle_recent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    limit = 10
+    if context.args:
+        try:
+            limit = int(context.args[0])
+        except ValueError:
+            pass
+    reply = recent_text(
+        context.bot_data["session_factory"],
+        context.bot_data["timezone"],
+        limit,
+    )
+    await update.message.reply_text(reply)
+
+
+async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text("Usage: /delete <id>")
+        return
+    reply = delete_text(
+        context.bot_data["session_factory"],
+        context.bot_data["timezone"],
+        int(context.args[0]),
+    )
+    await update.message.reply_text(reply)
+
+
+async def handle_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if len(args) < 3 or not args[0].isdigit():
+        await update.message.reply_text(EDIT_USAGE)
+        return
+    reply = edit_text(
+        context.bot_data["session_factory"],
+        context.bot_data["timezone"],
+        int(args[0]),
+        args[1],
+        " ".join(args[2:]),
+    )
+    await update.message.reply_text(reply)
+
+
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(HELP_TEXT)
 
@@ -319,6 +373,9 @@ def register_handlers(application: Application, allowed_user_id: int) -> None:
     application.add_handler(CommandHandler("undo", handle_undo, filters=user_filter))
     application.add_handler(CommandHandler("export", handle_export, filters=user_filter))
     application.add_handler(CommandHandler("recat", handle_recat, filters=user_filter))
+    application.add_handler(CommandHandler("recent", handle_recent, filters=user_filter))
+    application.add_handler(CommandHandler("delete", handle_delete, filters=user_filter))
+    application.add_handler(CommandHandler("edit", handle_edit, filters=user_filter))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND & user_filter, handle_message)
     )

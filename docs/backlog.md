@@ -33,16 +33,19 @@ To work through:
 
 ## Deferred v1 features
 
-From the design spec's non-goals — revisit only after a month of real use:
+None currently — backdating and transaction management are specced for
+implementation. See
+`docs/superpowers/specs/2026-08-12-transaction-management-and-backdating-design.md`.
+
+Dropped permanently (not wanted):
 
 - Voice-note input via transcription.
 - Receipt photos via vision.
-- Backdating ("yesterday I spent 30 at Rewe" currently logs as today).
-- Editing a transaction's amount in place, rather than `/undo` and re-send.
 
 ## Shipped after v1
 
 - **Read-only stats website** (2026-08-11) — sibling `stats` compose service,
-  nip.io + HTTP Basic Auth, live SQLite reads, Chart.js one-pager with
-  year/month/category/type filters. Spec:
+  HTTPS via barcheck Caddy (or nip.io fallback), live SQLite reads, Chart.js
+  one-pager. Spec:
   `docs/superpowers/specs/2026-08-11-stats-website-design.md`.
+- **Refund type removed** (2026-08-12) — ledger is EXPENSE/INCOME only.

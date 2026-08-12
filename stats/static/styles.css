@@ -183,6 +183,35 @@ body {
   font-weight: 600;
 }
 
+.section-lede {
+  margin: -0.35rem 0 1rem;
+  max-width: 40rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.merchants-overview {
+  margin-bottom: 2rem;
+  animation: rise 0.7s ease-out 0.28s both;
+}
+
+.overview-filters {
+  margin-bottom: 1rem;
+}
+
+.overview-search-label input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  background: white;
+  width: 100%;
+}
+
 .charts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -214,6 +243,202 @@ body {
   max-height: 280px;
 }
 
+.chart-card-wide {
+  grid-column: 1 / -1;
+}
+
+#chart-merchant {
+  max-height: 360px;
+}
+
+.merchant-table-wrap {
+  margin: -1.4rem 0 2.25rem;
+  padding: 0 0.25rem;
+  animation: rise 0.7s ease-out 0.22s both;
+}
+
+.table-scroll {
+  overflow: auto;
+  max-height: min(70vh, 720px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.data-table {
+  width: 100%;
+  min-width: 36rem;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.data-table col.col-merchant {
+  width: 36%;
+}
+
+.data-table col.col-category {
+  width: 20%;
+}
+
+.data-table col.col-num {
+  width: 14%;
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0;
+  background: #f0f5f9;
+  border-bottom: 2px solid var(--line);
+  box-shadow: 0 1px 0 rgba(19, 41, 61, 0.06);
+}
+
+.data-table tbody td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.data-table tbody tr:nth-child(even) {
+  background: rgba(238, 243, 247, 0.45);
+}
+
+.data-table tbody tr:hover {
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table .th-left,
+.data-table .th-right {
+  width: auto;
+}
+
+.data-table .cell-merchant,
+.data-table .cell-category {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
+}
+
+.data-table .cell-merchant {
+  font-weight: 500;
+}
+
+.data-table .cell-category {
+  color: var(--muted);
+}
+
+.data-table .cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.data-table td.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 2rem 1rem;
+  max-width: none;
+  white-space: normal;
+}
+
+.sort-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  appearance: none;
+  border: none;
+  margin: 0;
+  padding: 0.7rem 1rem;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.th-left .sort-btn {
+  justify-content: flex-start;
+}
+
+.th-right .sort-btn {
+  justify-content: flex-end;
+}
+
+.sort-btn:hover {
+  color: var(--ink);
+  background: rgba(19, 41, 61, 0.04);
+}
+
+.sort-btn.is-active {
+  color: var(--teal-deep);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.sort-btn.is-active::after {
+  content: "↓";
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.sort-btn.is-active[data-dir="asc"]::after {
+  content: "↑";
+}
+
+.merchant-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(247, 250, 252, 0.92);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.merchant-table th,
+.merchant-table td {
+  padding: 0.65rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-table th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.merchant-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.merchant-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.merchant-table td.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 1.5rem;
+}
+
 .footer {
   color: var(--muted);
   font-size: 0.85rem;
@@ -238,6 +463,10 @@ body {
   .filters,
   .kpis,
   .charts {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-filters {
     grid-template-columns: 1fr;
   }
 }

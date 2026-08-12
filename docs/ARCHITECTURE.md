@@ -56,7 +56,7 @@ the `ExtractionResult` schema (a list of `TransactionItem`). Every item carries
 `amount`, `currency`, `merchant`, `category` (one of the 14 `CategoryName`
 values, closed enum — the model cannot invent a category), `category_confident`
 (bool, no default — strict-mode schemas forbid defaults), `type`
-(`EXPENSE`/`INCOME`/`REFUND`), and optional `notes`.
+(`EXPENSE`/`INCOME`), and optional `notes`.
 
 **3. Validation — all or nothing.** `validate_extraction` rejects the *entire*
 message if any item has a non-EUR currency or an amount outside

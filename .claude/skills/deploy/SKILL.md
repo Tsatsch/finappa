@@ -38,5 +38,8 @@ couple of times a month. There is no CI/CD; do not propose adding it here.
    docker compose logs stats --tail=50
    curl -I -u "$STATS_USERNAME:$STATS_PASSWORD" "http://127.0.0.1:${STATS_PORT:-8080}/"
    ```
-   Expect HTTP 200. Then open `http://<host-public-ip>.nip.io:<STATS_PORT>/`
-   in a browser and sign in with Basic Auth.
+   Expect HTTP 200. Browse `http://<host-ip>.nip.io:${STATS_PORT}/` from a browser.
+
+7. **Optional HTTPS** (advanced, not required): a host reverse proxy can
+   terminate TLS on 443 and forward to stats — see `deploy/caddy-finappa.caddy`.
+   finappa stays a standalone compose stack; this is optional wiring only.

@@ -1,0 +1,14 @@
+# Optional: HTTPS via a host reverse proxy (advanced)
+#
+# finappa's default is plain HTTP on STATS_PORT (nip.io). Use this only if you
+# already run Caddy (or similar) on the host and want TLS on 443.
+#
+# Replace YOURDOMAIN. Add DNS: finappa.YOURDOMAIN → server IP.
+# Caddy must reach stats — e.g. reverse_proxy 172.17.0.1:8080 (host port)
+# or join both containers on a shared Docker network.
+#
+# finappa does not require or depend on any other application.
+
+finappa.YOURDOMAIN.com {
+	reverse_proxy 172.17.0.1:8080
+}

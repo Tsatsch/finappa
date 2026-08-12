@@ -9,7 +9,7 @@ from app.analytics import month_bounds_utc
 from app.categories import CategoryName
 from app.db import Category, RecurringRule, Transaction
 
-VALID_TYPES = {"EXPENSE", "INCOME", "REFUND"}
+VALID_TYPES = {"EXPENSE", "INCOME"}
 
 
 def load_recurring_rules(session: Session, yaml_path: str) -> None:

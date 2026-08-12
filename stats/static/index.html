@@ -19,7 +19,7 @@
     <p class="lede">Income, expenses, and trends — live from your bot ledger.</p>
   </header>
 
-  <section class="filters" aria-label="Filters">
+  <section class="filters" aria-label="Period filters">
     <label>
       Year
       <select id="filter-year"></select>
@@ -38,10 +38,9 @@
         <option value="ALL">All</option>
         <option value="EXPENSE">Expense</option>
         <option value="INCOME">Income</option>
-        <option value="REFUND">Refund</option>
       </select>
     </label>
-    <p id="meta" class="meta"></p>
+    <p id="meta" class="meta">Charts and KPIs for the period above.</p>
   </section>
 
   <section class="kpis" aria-label="Period totals">
@@ -70,6 +69,10 @@
         <figcaption>Daily expenses</figcaption>
         <canvas id="chart-daily"></canvas>
       </figure>
+      <figure class="chart-card chart-card-wide" id="merchant-card">
+        <figcaption>Top merchants this period</figcaption>
+        <canvas id="chart-merchant"></canvas>
+      </figure>
     </div>
   </section>
 
@@ -84,6 +87,61 @@
         <figcaption>Category mix over months</figcaption>
         <canvas id="chart-category-trend"></canvas>
       </figure>
+    </div>
+  </section>
+
+  <section class="merchants-overview" aria-label="Merchant overview">
+    <h2 class="section-title">Merchant overview</h2>
+    <p class="section-lede">All expenses grouped by name. Filter and sort here — defaults to all time.</p>
+    <div class="filters overview-filters">
+      <label>
+        Year
+        <select id="overview-filter-year"></select>
+      </label>
+      <label>
+        Month
+        <select id="overview-filter-month"></select>
+      </label>
+      <label>
+        Category
+        <select id="overview-filter-category"></select>
+      </label>
+      <label class="overview-search-label">
+        Search
+        <input id="overview-search" type="search" placeholder="e.g. Rewe" autocomplete="off" />
+      </label>
+      <p id="overview-meta" class="meta"></p>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table" id="overview-table">
+        <colgroup>
+          <col class="col-merchant" />
+          <col class="col-category" />
+          <col class="col-num" />
+          <col class="col-num" />
+          <col class="col-num" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col" class="th-left">
+              <button type="button" class="sort-btn" data-sort="name">Merchant</button>
+            </th>
+            <th scope="col" class="th-left">
+              <button type="button" class="sort-btn" data-sort="category">Category</button>
+            </th>
+            <th scope="col" class="th-right">
+              <button type="button" class="sort-btn is-active" data-sort="cents">Total</button>
+            </th>
+            <th scope="col" class="th-right">
+              <button type="button" class="sort-btn" data-sort="count">Visits</button>
+            </th>
+            <th scope="col" class="th-right">
+              <button type="button" class="sort-btn" data-sort="avg">Avg</button>
+            </th>
+          </tr>
+        </thead>
+        <tbody id="overview-table-body"></tbody>
+      </table>
     </div>
   </section>
 

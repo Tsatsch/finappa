@@ -8,8 +8,7 @@ services:
       - ./recurring.yml:/app/recurring.yml:ro
 
   # Read-only stats one-pager. This is the only service allowed to publish a
-  # port — the bot service must stay port-free (see AGENTS.md).
-  # Host port comes from STATS_PORT in `.env`; the container always listens on 8080.
+  # host port — the bot service must stay port-free (see AGENTS.md).
   stats:
     build: .
     restart: unless-stopped

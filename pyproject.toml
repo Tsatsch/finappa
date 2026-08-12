@@ -24,8 +24,5 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["app", "stats"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"stats/static" = "stats/static"
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

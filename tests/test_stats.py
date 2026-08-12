@@ -120,3 +120,5 @@ def test_index_requires_auth_and_serves_html(client: TestClient):
     assert response.status_code == 200
     assert "finappa" in response.text
     assert 'id="chart-category"' in response.text
+    assert 'id="chart-merchant"' in response.text
+    assert 'id="overview-table"' in response.text

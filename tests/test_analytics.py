@@ -33,22 +33,6 @@ def test_format_cents_positive_and_negative():
     assert format_cents(-41250) == "−412,50 €"
 
 
-def test_monthly_summary_refund_reduces_expense(session):
-    groceries = session.query(Category).filter_by(name="Groceries").one()
-    now = datetime.now(timezone.utc)
-    session.add_all(
-        [
-            Transaction(ts=now, amount_cents=3000, type="EXPENSE", category_id=groceries.id, source="message"),
-            Transaction(ts=now, amount_cents=1000, type="REFUND", category_id=groceries.id, source="message"),
-        ]
-    )
-    session.commit()
-
-    summary = monthly_summary(session, "Europe/Berlin", at=now)
-    assert summary["expense_cents"] == 2000
-    assert summary["by_category"]["Groceries"] == 2000
-
-
 def test_monthly_summary_net_arithmetic(session):
     groceries = session.query(Category).filter_by(name="Groceries").one()
     salary = session.query(Category).filter_by(name="Salary").one()
