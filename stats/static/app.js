@@ -100,6 +100,22 @@ function applyFilters(transactions, filters) {
   });
 }
 
+function merchantLabel(t) {
+  return t.merchant || t.notes || "—";
+}
+
+function summarizeByMerchant(transactions) {
+  const byMerchant = {};
+  for (const t of transactions) {
+    if (t.type !== "EXPENSE") continue;
+    const name = merchantLabel(t);
+    if (!byMerchant[name]) byMerchant[name] = { cents: 0, count: 0 };
+    byMerchant[name].cents += t.amount_cents;
+    byMerchant[name].count += 1;
+  }
+  return Object.entries(byMerchant).sort((a, b) => b[1].cents - a[1].cents);
+}
+
 function summarize(transactions) {
   let income = 0;
   let expenses = 0;
@@ -132,6 +148,62 @@ function destroyChart(key) {
 function upsertChart(key, ctx, config) {
   destroyChart(key);
   charts[key] = new Chart(ctx, config);
+}
+
+function renderMerchantChart(entries) {
+  const card = $("merchant-card");
+  const tableWrap = $("merchant-table-wrap");
+  if (entries.length === 0) {
+    card.style.display = "none";
+    tableWrap.style.display = "none";
+    destroyChart("merchant");
+    return;
+  }
+  card.style.display = "";
+  tableWrap.style.display = "";
+
+  const top = entries.slice(0, 12);
+  upsertChart("merchant", $("chart-merchant"), {
+    type: "bar",
+    data: {
+      labels: top.map(([name]) => name),
+      datasets: [{
+        label: "Expenses €",
+        data: top.map(([, v]) => v.cents / 100),
+        backgroundColor: "#0f766e",
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      indexAxis: "y",
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderMerchantTable(entries) {
+  const body = $("merchant-table-body");
+  body.innerHTML = "";
+  for (const [name, stats] of entries) {
+    const row = document.createElement("tr");
+    row.innerHTML =
+      `<td>${escapeHtml(name)}</td>` +
+      `<td class="num">${formatCents(stats.cents)}</td>` +
+      `<td class="num">${stats.count}</td>`;
+    body.appendChild(row);
+  }
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function renderCategoryChart(byCategory) {
@@ -295,6 +367,9 @@ function render() {
     `${filtered.length} transactions in view · refreshed ${when.toLocaleString()} · ${ledger.timezone}`;
 
   renderCategoryChart(summary.by_category);
+  const merchantEntries = summarizeByMerchant(filtered);
+  renderMerchantChart(merchantEntries);
+  renderMerchantTable(merchantEntries);
   renderDailyChart(filtered, filters);
   renderMonthlyChart(filtered);
   renderCategoryTrend(filtered);

@@ -214,6 +214,56 @@ body {
   max-height: 280px;
 }
 
+.chart-card-wide {
+  grid-column: 1 / -1;
+}
+
+#chart-merchant {
+  max-height: 360px;
+}
+
+.merchant-table-wrap {
+  margin: -1.4rem 0 2.25rem;
+  padding: 0 0.25rem;
+  animation: rise 0.7s ease-out 0.22s both;
+}
+
+.merchant-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(247, 250, 252, 0.92);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.merchant-table th,
+.merchant-table td {
+  padding: 0.65rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-table th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.merchant-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.merchant-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .footer {
   color: var(--muted);
   font-size: 0.85rem;
