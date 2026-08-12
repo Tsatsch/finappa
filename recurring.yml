@@ -1,27 +1,45 @@
 # Recurring transactions, checked daily and inserted once per month (spec §8.2).
 # day_of_month must be 1..28 so a rule never vanishes in February.
 # After editing this file, restart the container to pick up changes.
-#
-# category: exact name from the supported list (see README § Categories).
-# type: EXPENSE or INCOME — match the category (e.g. Salary + INCOME, Housing + EXPENSE).
 
 - key: rent
   label: Rent
-  amount: 1200.00
+  amount: 750.00
   type: EXPENSE
   category: Housing
   day_of_month: 1
 
-# - key: salary
-#   label: Salary
-#   amount: 3500.00
-#   type: INCOME
-#   category: Salary
-#   day_of_month: 25
-#
-# - key: etf_savings_plan
-#   label: ETF savings plan
-#   amount: 300.00
-#   type: EXPENSE
-#   category: Investment
-#   day_of_month: 5
+- key: wlan-home
+  label: Wlan Vodafone
+  amount: 44.99
+  type: EXPENSE
+  category: Utilites
+  day_of_month: 1
+
+- key: mobile
+  label: Mobile Fraenk
+  amount: 10.00
+  type: EXPENSE
+  category: Utilites
+  day_of_month: 1
+
+- key: insurance
+  label: Insurance TK
+  amount: 146.29
+  type: EXPENSE
+  category: Utilites
+  day_of_month: 1
+
+- key: traderp-etfs
+  label: Trade Republic ETFs
+  amount: 160.00
+  type: EXPENSE
+  category: Investment
+  day_of_month: 1
+
+- key: mvg-dticket
+  label: Deutschlandticket
+  amount: 43.00
+  type: EXPENSE
+  category: Transport
+  day_of_month: 1
