@@ -137,6 +137,40 @@ the entry (rent → `Housing` + `EXPENSE`, salary → `Salary` + `INCOME`).
 
 To add a new category, see [`.claude/skills/add-category/SKILL.md`](.claude/skills/add-category/SKILL.md).
 
+## Backing up your data
+
+You already have three ways to keep a copy outside the live app:
+
+1. **CSV export (manual, human-readable)** — send `/export` in Telegram. The bot
+   replies with `finappa_export.csv` containing every transaction:
+
+   | Column | Contents |
+   |--------|----------|
+   | `timestamp` | UTC ISO timestamp |
+   | `amount_eur` | Amount in euros (e.g. `30.00`) |
+   | `type` | `EXPENSE` or `INCOME` |
+   | `category` | Category name |
+   | `merchant` | Merchant display name, if any |
+   | `notes` | Free-text note |
+   | `source` | `message`, `recurring`, etc. |
+
+   Save the file somewhere safe (cloud drive, email to yourself). Run it whenever
+   you want a snapshot — e.g. after a big logging session or before a deploy.
+
+2. **Encrypted daily backup (automatic)** — if `BACKUP_CHANNEL_ID` and
+   `BACKUP_ENCRYPTION_KEY` are set in `.env`, the bot sends an encrypted SQLite
+   snapshot to your private Telegram backup channel every night (~03:30 Berlin).
+   Full restore procedure:
+   [`.claude/skills/restore-backup/SKILL.md`](.claude/skills/restore-backup/SKILL.md).
+
+3. **Server copy (manual)** — on the host, `data/finappa.db` is the live database.
+   Stop the container and copy `data/` before risky changes. Local plaintext
+   snapshots also land in `data/backup-YYYY-MM-DD.db` (newest 7 kept).
+
+For "app is broken but I still have my numbers", `/export` is the quickest path.
+For full recovery including merchants and categories, use the encrypted backup or
+`finappa.db`.
+
 ## Restoring from a backup
 
 See [`.claude/skills/restore-backup/SKILL.md`](.claude/skills/restore-backup/SKILL.md).
