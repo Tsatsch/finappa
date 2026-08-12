@@ -1,6 +1,9 @@
 # Recurring transactions, checked daily and inserted once per month (spec §8.2).
 # day_of_month must be 1..28 so a rule never vanishes in February.
 # After editing this file, restart the container to pick up changes.
+#
+# category: exact name from the supported list (see README § Categories).
+# type: EXPENSE or INCOME — match the category (e.g. Salary + INCOME, Housing + EXPENSE).
 
 - key: rent
   label: Rent

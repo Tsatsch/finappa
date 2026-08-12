@@ -37,7 +37,8 @@ Architecture notes for AI coding tools: [`AGENTS.md`](AGENTS.md).
    permanently unreadable (spec §13.2) — local snapshots on disk are unaffected.
    Also set `STATS_USERNAME` and `STATS_PASSWORD` for the read-only stats
    one-pager (a strong unique password — this endpoint is public via nip.io).
-6. Edit `recurring.yml` for your actual rent/salary/etc.
+6. Edit `recurring.yml` for your actual rent/salary/etc. See [Categories](#categories)
+   for valid `category` names.
 7. Create the data directory with the right owner **before** first start — the
    container runs as uid 1000, and a bind mount created by Docker itself would
    default to root ownership:
@@ -106,6 +107,35 @@ docker compose up -d --build
 
 See [`.claude/skills/deploy/SKILL.md`](.claude/skills/deploy/SKILL.md) for the
 full checklist including how to tell a bad deploy from a good one.
+
+## Categories
+
+Single source of truth: `app/categories.py::CategoryName`. The same names work
+everywhere — free-text logging, `/recat`, `/edit`, `recurring.yml`, and the
+stats site filters.
+
+| Category | Typical use |
+|----------|-------------|
+| Groceries | Supermarkets, food shops |
+| Dining | Restaurants, cafés, delivery |
+| Transport | Public transit, taxis, parking |
+| Fuel | Petrol, charging |
+| Housing | Rent, mortgage |
+| Utilities | Electricity, gas, water, internet |
+| Health | Pharmacy, doctor, gym |
+| Shopping | Clothes, electronics, general retail |
+| Entertainment | Cinema, concerts, hobbies |
+| Subscriptions | Netflix, Spotify, SaaS |
+| Travel | Hotels, flights, holidays |
+| Investment | ETF savings plan, broker deposits |
+| Salary | Paycheque, freelance income |
+| Other | Anything that doesn't fit |
+
+Names are **case-sensitive** — use exactly as shown (e.g. `Housing`, not
+`housing`). For `recurring.yml`, set `type: EXPENSE` or `type: INCOME` to match
+the entry (rent → `Housing` + `EXPENSE`, salary → `Salary` + `INCOME`).
+
+To add a new category, see [`.claude/skills/add-category/SKILL.md`](.claude/skills/add-category/SKILL.md).
 
 ## Restoring from a backup
 
