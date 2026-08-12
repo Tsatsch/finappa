@@ -351,3 +351,14 @@ def test_process_message_backdated_item_lands_in_correct_month(session_factory):
     with session_factory() as session:
         assert monthly_summary(session, "Europe/Berlin", at=july)["expense_cents"] == 3000
         assert monthly_summary(session, "Europe/Berlin", at=august)["expense_cents"] == 0
+
+
+async def test_register_bot_commands_sets_telegram_menu():
+    from app.handlers import BOT_COMMANDS, register_bot_commands
+
+    application = SimpleNamespace(bot=AsyncMock())
+    await register_bot_commands(application)
+
+    application.bot.set_my_commands.assert_awaited_once_with(BOT_COMMANDS)
+    command_names = {cmd.command for cmd in BOT_COMMANDS}
+    assert command_names == {"start", "help", "summary", "undo", "export", "recat"}
