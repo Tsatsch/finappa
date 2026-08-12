@@ -92,7 +92,6 @@ function selectedFilters() {
 
 function applyFilters(transactions, filters) {
   return transactions.filter((t) => {
-    if (t.type === "REFUND") return false;
     if (filters.year !== null && t.local_year !== filters.year) return false;
     if (filters.month !== null && t.local_month !== filters.month) return false;
     if (filters.category !== null && t.category !== filters.category) return false;

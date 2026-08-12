@@ -17,7 +17,7 @@ Compose; the bot service still has no `ports:` key.
 ## Invariants — do not violate these without updating the spec first
 
 - **Money is `amount_cents: int`, always positive.** Direction is `type`
-  (`EXPENSE`/`INCOME`/`REFUND`), never a sign. The only float is
+  (`EXPENSE`/`INCOME`), never a sign. The only float is
   `extractor.TransactionItem.amount`, at the LLM boundary only.
 - **EUR only.** Non-EUR rejects the whole message. No FX conversion anywhere.
 - **`Transaction.ts` is always UTC.** Month boundaries are computed in

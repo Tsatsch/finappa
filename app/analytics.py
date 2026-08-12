@@ -46,9 +46,6 @@ def monthly_summary(session: Session, tz_name: str, at: datetime | None = None) 
         elif type_ == "EXPENSE":
             expense_cents += total
             by_category[category_name] = by_category.get(category_name, 0) + total
-        elif type_ == "REFUND":
-            expense_cents -= total
-            by_category[category_name] = by_category.get(category_name, 0) - total
         else:
             raise ValueError(f"Unknown transaction type: {type_}")
 

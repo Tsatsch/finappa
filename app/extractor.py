@@ -14,7 +14,7 @@ class TransactionItem(BaseModel):
     merchant: str
     category: CategoryName
     category_confident: bool
-    type: Literal["EXPENSE", "INCOME", "REFUND"]
+    type: Literal["EXPENSE", "INCOME"]
     notes: str | None = None
 
 
@@ -34,11 +34,11 @@ class ExtractionError(Exception):
 SYSTEM_PROMPT = (
     "You extract financial transactions from a message written by the user to "
     "their personal finance tracker. The message may describe one or several "
-    "transactions (expenses, income, or refunds). For each transaction, extract "
+    "transactions (expenses or income). For each transaction, extract "
     "the amount, currency (ISO 4217 code, e.g. EUR, USD), the merchant or "
     "payer/payee name (empty string if there is none, e.g. a salary deposit), "
     "the category (pick the single best fit from the given list), the type "
-    "(EXPENSE, INCOME, or REFUND), and any short note worth keeping. If the "
+    "(EXPENSE or INCOME), and any short note worth keeping. If the "
     "message describes no transactions, return an empty list. Also set "
     "category_confident to true or false: false only when the category is a "
     "genuine judgment call between two or more categories, or the merchant "
