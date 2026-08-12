@@ -112,15 +112,32 @@
       </label>
       <p id="overview-meta" class="meta"></p>
     </div>
-    <div class="merchant-table-wrap">
-      <table class="merchant-table" id="overview-table">
+    <div class="table-scroll">
+      <table class="data-table" id="overview-table">
+        <colgroup>
+          <col class="col-merchant" />
+          <col class="col-category" />
+          <col class="col-num" />
+          <col class="col-num" />
+          <col class="col-num" />
+        </colgroup>
         <thead>
           <tr>
-            <th scope="col"><button type="button" class="sort-btn" data-sort="name">Merchant</button></th>
-            <th scope="col"><button type="button" class="sort-btn" data-sort="category">Category</button></th>
-            <th scope="col"><button type="button" class="sort-btn is-active" data-sort="cents">Total</button></th>
-            <th scope="col"><button type="button" class="sort-btn" data-sort="count">Visits</button></th>
-            <th scope="col"><button type="button" class="sort-btn" data-sort="avg">Avg</button></th>
+            <th scope="col" class="th-left">
+              <button type="button" class="sort-btn" data-sort="name">Merchant</button>
+            </th>
+            <th scope="col" class="th-left">
+              <button type="button" class="sort-btn" data-sort="category">Category</button>
+            </th>
+            <th scope="col" class="th-right">
+              <button type="button" class="sort-btn is-active" data-sort="cents">Total</button>
+            </th>
+            <th scope="col" class="th-right">
+              <button type="button" class="sort-btn" data-sort="count">Visits</button>
+            </th>
+            <th scope="col" class="th-right">
+              <button type="button" class="sort-btn" data-sort="avg">Avg</button>
+            </th>
           </tr>
         </thead>
         <tbody id="overview-table-body"></tbody>

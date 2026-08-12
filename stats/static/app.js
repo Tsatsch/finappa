@@ -252,11 +252,11 @@ function renderOverviewTable() {
     for (const row of rows) {
       const tr = document.createElement("tr");
       tr.innerHTML =
-        `<td>${escapeHtml(row.name)}</td>` +
-        `<td>${escapeHtml(row.category)}</td>` +
-        `<td class="num">${formatCents(row.cents)}</td>` +
-        `<td class="num">${row.count}</td>` +
-        `<td class="num">${formatCents(row.avg)}</td>`;
+        `<td class="cell-merchant" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</td>` +
+        `<td class="cell-category">${escapeHtml(row.category)}</td>` +
+        `<td class="cell-num">${formatCents(row.cents)}</td>` +
+        `<td class="cell-num">${row.count}</td>` +
+        `<td class="cell-num">${formatCents(row.avg)}</td>`;
       body.appendChild(tr);
     }
   }
