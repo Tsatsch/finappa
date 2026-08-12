@@ -183,6 +183,35 @@ body {
   font-weight: 600;
 }
 
+.section-lede {
+  margin: -0.35rem 0 1rem;
+  max-width: 40rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.merchants-overview {
+  margin-bottom: 2rem;
+  animation: rise 0.7s ease-out 0.28s both;
+}
+
+.overview-filters {
+  margin-bottom: 1rem;
+}
+
+.overview-search-label input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  background: white;
+  width: 100%;
+}
+
 .charts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -264,6 +293,35 @@ body {
   white-space: nowrap;
 }
 
+.merchant-table td.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 1.5rem;
+}
+
+.sort-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sort-btn.is-active::after {
+  content: " ↓";
+  font-size: 0.85em;
+}
+
+.sort-btn.is-active[data-dir="asc"]::after {
+  content: " ↑";
+}
+
 .footer {
   color: var(--muted);
   font-size: 0.85rem;
@@ -288,6 +346,10 @@ body {
   .filters,
   .kpis,
   .charts {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-filters {
     grid-template-columns: 1fr;
   }
 }

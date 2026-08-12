@@ -13,6 +13,7 @@ const PALETTE = [
 
 let ledger = null;
 let charts = {};
+let overviewSort = { key: "cents", dir: "desc" };
 
 function $(id) {
   return document.getElementById(id);
@@ -46,27 +47,25 @@ function fillSelect(select, options, { allLabel, allValue = "ALL" }) {
   }
 }
 
-function populateFilters(transactions) {
+function populateFilterSelects(transactions) {
   const years = uniqueSorted(transactions.map((t) => t.local_year));
   const categories = uniqueSorted(transactions.map((t) => t.category));
-
-  fillSelect(
-    $("filter-year"),
-    years.map((y) => ({ value: y, label: String(y) })),
-    { allLabel: "All years" },
-  );
-
-  const months = MONTH_NAMES.map((name, idx) => ({
+  const yearOptions = years.map((y) => ({ value: y, label: String(y) }));
+  const monthOptions = MONTH_NAMES.map((name, idx) => ({
     value: idx + 1,
     label: name,
   }));
-  fillSelect($("filter-month"), months, { allLabel: "All months" });
+  const categoryOptions = categories.map((c) => ({ value: c, label: c }));
 
-  fillSelect(
-    $("filter-category"),
-    categories.map((c) => ({ value: c, label: c })),
-    { allLabel: "All categories" },
-  );
+  for (const id of ["filter-year", "overview-filter-year"]) {
+    fillSelect($(id), yearOptions, { allLabel: "All years" });
+  }
+  for (const id of ["filter-month", "overview-filter-month"]) {
+    fillSelect($(id), monthOptions, { allLabel: "All months" });
+  }
+  for (const id of ["filter-category", "overview-filter-category"]) {
+    fillSelect($(id), categoryOptions, { allLabel: "All categories" });
+  }
 
   const now = new Date();
   const currentYear = String(now.getFullYear());
@@ -75,13 +74,18 @@ function populateFilters(transactions) {
     $("filter-year").value = currentYear;
   }
   $("filter-month").value = currentMonth;
+
+  $("overview-filter-year").value = "ALL";
+  $("overview-filter-month").value = "ALL";
+  $("overview-filter-category").value = "ALL";
 }
 
-function selectedFilters() {
-  const year = $("filter-year").value;
-  const month = $("filter-month").value;
-  const category = $("filter-category").value;
-  const type = $("filter-type").value;
+function readFilters(prefix) {
+  const year = $(`${prefix}-year`).value;
+  const month = $(`${prefix}-month`).value;
+  const category = $(`${prefix}-category`).value;
+  const typeEl = $(`${prefix}-type`);
+  const type = typeEl ? typeEl.value : "EXPENSE";
   return {
     year: year === "ALL" ? null : Number(year),
     month: month === "ALL" ? null : Number(month),
@@ -104,16 +108,45 @@ function merchantLabel(t) {
   return t.merchant || t.notes || "—";
 }
 
-function summarizeByMerchant(transactions) {
+function dominantCategory(categories) {
+  const entries = Object.entries(categories);
+  if (entries.length === 0) return "—";
+  entries.sort((a, b) => b[1] - a[1]);
+  return entries[0][0];
+}
+
+function buildMerchantRows(transactions) {
   const byMerchant = {};
   for (const t of transactions) {
     if (t.type !== "EXPENSE") continue;
     const name = merchantLabel(t);
-    if (!byMerchant[name]) byMerchant[name] = { cents: 0, count: 0 };
+    if (!byMerchant[name]) {
+      byMerchant[name] = { cents: 0, count: 0, categories: {} };
+    }
     byMerchant[name].cents += t.amount_cents;
     byMerchant[name].count += 1;
+    byMerchant[name].categories[t.category] =
+      (byMerchant[name].categories[t.category] || 0) + t.amount_cents;
   }
-  return Object.entries(byMerchant).sort((a, b) => b[1].cents - a[1].cents);
+
+  return Object.entries(byMerchant).map(([name, stats]) => ({
+    name,
+    cents: stats.cents,
+    count: stats.count,
+    avg: Math.round(stats.cents / stats.count),
+    category: dominantCategory(stats.categories),
+  }));
+}
+
+function sortMerchantRows(rows, sort) {
+  const mult = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    if (sort.key === "name") return mult * a.name.localeCompare(b.name, "de");
+    if (sort.key === "category") return mult * a.category.localeCompare(b.category, "de");
+    if (sort.key === "count") return mult * (a.count - b.count);
+    if (sort.key === "avg") return mult * (a.avg - b.avg);
+    return mult * (a.cents - b.cents);
+  });
 }
 
 function summarize(transactions) {
@@ -150,26 +183,31 @@ function upsertChart(key, ctx, config) {
   charts[key] = new Chart(ctx, config);
 }
 
-function renderMerchantChart(entries) {
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderMerchantChart(rows) {
   const card = $("merchant-card");
-  const tableWrap = $("merchant-table-wrap");
-  if (entries.length === 0) {
+  if (rows.length === 0) {
     card.style.display = "none";
-    tableWrap.style.display = "none";
     destroyChart("merchant");
     return;
   }
   card.style.display = "";
-  tableWrap.style.display = "";
 
-  const top = entries.slice(0, 12);
+  const top = sortMerchantRows(rows, { key: "cents", dir: "desc" }).slice(0, 12);
   upsertChart("merchant", $("chart-merchant"), {
     type: "bar",
     data: {
-      labels: top.map(([name]) => name),
+      labels: top.map((r) => r.name),
       datasets: [{
         label: "Expenses €",
-        data: top.map(([, v]) => v.cents / 100),
+        data: top.map((r) => r.cents / 100),
         backgroundColor: "#0f766e",
         borderRadius: 6,
       }],
@@ -185,25 +223,48 @@ function renderMerchantChart(entries) {
   });
 }
 
-function renderMerchantTable(entries) {
-  const body = $("merchant-table-body");
-  body.innerHTML = "";
-  for (const [name, stats] of entries) {
-    const row = document.createElement("tr");
-    row.innerHTML =
-      `<td>${escapeHtml(name)}</td>` +
-      `<td class="num">${formatCents(stats.cents)}</td>` +
-      `<td class="num">${stats.count}</td>`;
-    body.appendChild(row);
+function updateSortButtons() {
+  for (const btn of document.querySelectorAll(".sort-btn")) {
+    const active = btn.dataset.sort === overviewSort.key;
+    btn.classList.toggle("is-active", active);
+    btn.dataset.dir = active ? overviewSort.dir : "";
   }
 }
 
-function escapeHtml(text) {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function renderOverviewTable() {
+  const filters = readFilters("overview-filter");
+  filters.type = "EXPENSE";
+  let filtered = applyFilters(ledger.transactions, filters);
+  const query = $("overview-search").value.trim().toLowerCase();
+  if (query) {
+    filtered = filtered.filter((t) => merchantLabel(t).toLowerCase().includes(query));
+  }
+
+  const rows = sortMerchantRows(buildMerchantRows(filtered), overviewSort);
+  const body = $("overview-table-body");
+  body.innerHTML = "";
+
+  if (rows.length === 0) {
+    const row = document.createElement("tr");
+    row.innerHTML = '<td colspan="5" class="empty">No merchants match.</td>';
+    body.appendChild(row);
+  } else {
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${escapeHtml(row.name)}</td>` +
+        `<td>${escapeHtml(row.category)}</td>` +
+        `<td class="num">${formatCents(row.cents)}</td>` +
+        `<td class="num">${row.count}</td>` +
+        `<td class="num">${formatCents(row.avg)}</td>`;
+      body.appendChild(tr);
+    }
+  }
+
+  const totalCents = rows.reduce((sum, r) => sum + r.cents, 0);
+  $("overview-meta").textContent =
+    `${rows.length} merchants · ${formatCents(totalCents)} total expenses`;
+  updateSortButtons();
 }
 
 function renderCategoryChart(byCategory) {
@@ -352,9 +413,8 @@ function renderCategoryTrend(transactions) {
   });
 }
 
-function render() {
-  if (!ledger) return;
-  const filters = selectedFilters();
+function renderPeriod() {
+  const filters = readFilters("filter");
   const filtered = applyFilters(ledger.transactions, filters);
   const summary = summarize(filtered);
 
@@ -367,12 +427,16 @@ function render() {
     `${filtered.length} transactions in view · refreshed ${when.toLocaleString()} · ${ledger.timezone}`;
 
   renderCategoryChart(summary.by_category);
-  const merchantEntries = summarizeByMerchant(filtered);
-  renderMerchantChart(merchantEntries);
-  renderMerchantTable(merchantEntries);
+  renderMerchantChart(buildMerchantRows(filtered));
   renderDailyChart(filtered, filters);
   renderMonthlyChart(filtered);
   renderCategoryTrend(filtered);
+}
+
+function render() {
+  if (!ledger) return;
+  renderPeriod();
+  renderOverviewTable();
 }
 
 async function boot() {
@@ -382,10 +446,28 @@ async function boot() {
     return;
   }
   ledger = await response.json();
-  populateFilters(ledger.transactions);
+  populateFilterSelects(ledger.transactions);
+
   for (const id of ["filter-year", "filter-month", "filter-category", "filter-type"]) {
-    $(id).addEventListener("change", render);
+    $(id).addEventListener("change", renderPeriod);
   }
+  for (const id of ["overview-filter-year", "overview-filter-month", "overview-filter-category"]) {
+    $(id).addEventListener("change", renderOverviewTable);
+  }
+  $("overview-search").addEventListener("input", renderOverviewTable);
+
+  for (const btn of document.querySelectorAll(".sort-btn")) {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.sort;
+      if (overviewSort.key === key) {
+        overviewSort.dir = overviewSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        overviewSort = { key, dir: key === "name" || key === "category" ? "asc" : "desc" };
+      }
+      renderOverviewTable();
+    });
+  }
+
   render();
 }
 
