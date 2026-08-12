@@ -38,21 +38,8 @@ couple of times a month. There is no CI/CD; do not propose adding it here.
    docker compose logs stats --tail=50
    curl -I -u "$STATS_USERNAME:$STATS_PASSWORD" "http://127.0.0.1:${STATS_PORT:-8080}/"
    ```
-   Expect HTTP 200 on localhost. Public access should go through barcheck Caddy
-   over HTTPS — see step 7.
+   Expect HTTP 200. Browse `http://<host-ip>.nip.io:${STATS_PORT}/` from a browser.
 
-7. **HTTPS via barcheck Caddy** (recommended on a shared host):
-   - Confirm the shared Docker network name:
-     ```bash
-     docker inspect barcheck-caddy-1 --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}'
-     ```
-     Set `STATS_CADDY_NETWORK` in `.env` if it is not `barcheck_default`.
-   - Add the block from `deploy/caddy-finappa.caddy` to the barcheck Caddyfile
-     (replace `YOURDOMAIN`), create DNS `finappa.YOURDOMAIN` → server IP, reload
-     Caddy.
-   - Verify:
-     ```bash
-     curl -I -u "$STATS_USERNAME:$STATS_PASSWORD" "https://finappa.YOURDOMAIN/"
-     ```
-     Expect HTTP 200. Stats binds `127.0.0.1:${STATS_PORT}` only — Caddy
-     reaches `finappa-stats-1:8080` on the Docker network, not via the host port.
+7. **Optional HTTPS** (advanced, not required): a host reverse proxy can
+   terminate TLS on 443 and forward to stats — see `deploy/caddy-finappa.caddy`.
+   finappa stays a standalone compose stack; this is optional wiring only.
