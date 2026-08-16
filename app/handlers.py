@@ -43,10 +43,16 @@ HELP_TEXT = (
     "/recat <merchant> <category> — fix a merchant's category, past and future\n"
 )
 
+# Telegram's "/" suggestion menu (set via setMyCommands on startup). Keep in
+# sync with HELP_TEXT and register_handlers — omitting a command here hides it
+# from the client autocomplete even though the handler still works.
 BOT_COMMANDS = [
     BotCommand("start", "Show help and how to log transactions"),
     BotCommand("help", "Show help and how to log transactions"),
     BotCommand("summary", "This month's income, expenses, and net"),
+    BotCommand("recent", "List recent transactions with IDs"),
+    BotCommand("delete", "Remove one transaction by ID"),
+    BotCommand("edit", "Fix amount, category, or date by ID"),
     BotCommand("undo", "Remove the last message's transactions"),
     BotCommand("export", "Download CSV of all transactions"),
     BotCommand("recat", "Fix a merchant's category, past and future"),

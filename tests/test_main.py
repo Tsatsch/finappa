@@ -10,6 +10,7 @@ from cryptography.fernet import Fernet
 
 from app.config import Settings
 from app.db import Category, RecurringRule, get_sessionmaker, init_db, make_engine
+from app.handlers import BOT_COMMANDS, register_bot_commands
 from app.main import _configure_logging, backup_job, build_application, recurring_job
 
 
@@ -38,9 +39,34 @@ def test_build_application_wires_bot_data_and_jobs(settings, tmp_path):
     assert application.bot_data["openai_model"] == "gpt-4o-mini"
     assert "session_factory" in application.bot_data
     assert application.bot_data["pending_confirmations"] == {}
+    assert application.post_init is register_bot_commands
 
     job_names = {job.name for job in application.job_queue.jobs()}
     assert {"recurring_check", "recurring_check_startup", "daily_backup"} <= job_names
+
+
+async def test_register_bot_commands_includes_recent_delete_edit():
+    # Telegram's "/" menu is independent of CommandHandler registration and
+    # HELP_TEXT — without setMyCommands covering every handler, new commands
+    # stay usable but invisible in the client suggestion list (as happened
+    # with /recent, /delete, /edit). ExtBot freezes attributes, so call the
+    # post_init helper against a plain namespace instead of patching the bot.
+    bot = SimpleNamespace(set_my_commands=AsyncMock())
+    await register_bot_commands(SimpleNamespace(bot=bot))
+
+    bot.set_my_commands.assert_called_once_with(BOT_COMMANDS)
+    names = {cmd.command for cmd in BOT_COMMANDS}
+    assert {
+        "start",
+        "help",
+        "summary",
+        "recent",
+        "delete",
+        "edit",
+        "undo",
+        "export",
+        "recat",
+    } <= names
 
 
 def test_scheduled_jobs_have_unlimited_misfire_grace_time(settings, tmp_path):

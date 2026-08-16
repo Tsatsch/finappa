@@ -31,8 +31,10 @@ testable without constructing `telegram.Update` objects. See existing commands
    ```python
    application.add_handler(CommandHandler("mycommand", handle_my_command, filters=user_filter))
    ```
-4. Add it to `HELP_TEXT` and `BOT_COMMANDS` in `app/handlers.py` so `/help`
-   and Telegram's slash-menu suggestions stay accurate.
+4. Add it to `HELP_TEXT` **and** `BOT_COMMANDS` in `app/handlers.py`.
+   `HELP_TEXT` is what `/help` shows; `BOT_COMMANDS` is what Telegram's `/`
+   suggestion menu shows (synced on startup via `register_bot_commands`).
+   Missing either leaves the command working but hard to discover.
 5. Write a test for the plain function in `tests/test_handlers.py`, following the
    existing tests' pattern (`session_factory` fixture backed by a `tmp_path`
    SQLite file — never `:memory:`, WAL mode needs a real file).
