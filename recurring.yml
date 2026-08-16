@@ -27,7 +27,7 @@
   label: Insurance TK
   amount: 146.29
   type: EXPENSE
-  category: Utilities
+  category: Health
   day_of_month: 1
 
 - key: traderp-etfs
