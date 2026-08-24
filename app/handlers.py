@@ -17,6 +17,7 @@ from telegram.ext import (
 )
 
 from app.analytics import format_cents, format_summary_message, monthly_summary
+from app.telegram_io import telegram_send
 from app.categories import CategoryName
 from app.categorize import RecatError, find_matching_merchant, recat_merchant, resolve_category
 from app.db import Category, Merchant, Transaction, get_sessionmaker
@@ -257,37 +258,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         update.update_id,
     )
     if result.reply_text:
-        await update.message.reply_text(result.reply_text)
+        await telegram_send(
+            lambda: update.message.reply_text(result.reply_text),
+            ledger_written=True,
+            context=f"log confirm update_id={update.update_id}",
+        )
     for pending in result.pending:
         context.bot_data["pending_confirmations"][pending.pending_id] = pending
-        await update.message.reply_text(
-            _pending_prompt_text(pending), reply_markup=_category_keyboard(pending.pending_id)
+        await telegram_send(
+            lambda p=pending: update.message.reply_text(
+                _pending_prompt_text(p), reply_markup=_category_keyboard(p.pending_id)
+            ),
+            context=f"category prompt update_id={update.update_id}",
         )
 
 
 async def handle_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply = summary_text(context.bot_data["session_factory"], context.bot_data["timezone"])
-    await update.message.reply_text(reply)
+    await telegram_send(lambda: update.message.reply_text(reply), context="/summary")
 
 
 async def handle_undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply = undo_last(context.bot_data["session_factory"])
-    await update.message.reply_text(reply)
+    await telegram_send(
+        lambda: update.message.reply_text(reply),
+        ledger_written=reply.startswith("Removed"),
+        context=f"/undo update_id={update.update_id}",
+    )
 
 
 async def handle_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     csv_buffer = export_csv(context.bot_data["session_factory"])
-    await update.message.reply_document(document=csv_buffer, filename="finappa_export.csv")
+    await telegram_send(
+        lambda: update.message.reply_document(document=csv_buffer, filename="finappa_export.csv"),
+        context="/export",
+    )
 
 
 async def handle_recat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Usage: /recat <merchant> <category>")
+        await telegram_send(lambda: update.message.reply_text("Usage: /recat <merchant> <category>"))
         return
     *merchant_parts, category_name = args
     reply = recat_text(context.bot_data["session_factory"], " ".join(merchant_parts), category_name)
-    await update.message.reply_text(reply)
+    await telegram_send(
+        lambda: update.message.reply_text(reply),
+        ledger_written=reply.endswith("updated."),
+        context=f"/recat update_id={update.update_id}",
+    )
 
 
 async def handle_recent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -302,25 +321,29 @@ async def handle_recent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         context.bot_data["timezone"],
         limit,
     )
-    await update.message.reply_text(reply)
+    await telegram_send(lambda: update.message.reply_text(reply), context="/recent")
 
 
 async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args or not context.args[0].isdigit():
-        await update.message.reply_text("Usage: /delete <id>")
+        await telegram_send(lambda: update.message.reply_text("Usage: /delete <id>"))
         return
     reply = delete_text(
         context.bot_data["session_factory"],
         context.bot_data["timezone"],
         int(context.args[0]),
     )
-    await update.message.reply_text(reply)
+    await telegram_send(
+        lambda: update.message.reply_text(reply),
+        ledger_written=reply.startswith("Deleted"),
+        context=f"/delete update_id={update.update_id}",
+    )
 
 
 async def handle_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args
     if len(args) < 3 or not args[0].isdigit():
-        await update.message.reply_text(EDIT_USAGE)
+        await telegram_send(lambda: update.message.reply_text(EDIT_USAGE))
         return
     reply = edit_text(
         context.bot_data["session_factory"],
@@ -329,26 +352,32 @@ async def handle_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         args[1],
         " ".join(args[2:]),
     )
-    await update.message.reply_text(reply)
+    await telegram_send(
+        lambda: update.message.reply_text(reply),
+        ledger_written=reply.startswith("Updated"),
+        context=f"/edit update_id={update.update_id}",
+    )
 
 
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(HELP_TEXT)
+    await telegram_send(lambda: update.message.reply_text(HELP_TEXT))
 
 
 async def handle_category_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query.from_user.id != context.bot_data["settings"].allowed_telegram_user_id:
         return
-    await query.answer()
+    await telegram_send(lambda: query.answer())
     _, pending_id, choice = query.data.split(":", 2)
     pending = context.bot_data["pending_confirmations"].pop(pending_id, None)
     if pending is None:
-        await query.edit_message_text("This confirmation expired — just resend the message.")
+        await telegram_send(
+            lambda: query.edit_message_text("This confirmation expired — just resend the message.")
+        )
         return
     if choice == "SKIP":
         label = _pending_label(pending)
-        await query.edit_message_text(f"Discarded: {label}, not logged.")
+        await telegram_send(lambda: query.edit_message_text(f"Discarded: {label}, not logged."))
         return
     reply = await asyncio.to_thread(
         confirm_category,
@@ -358,7 +387,11 @@ async def handle_category_confirmation(update: Update, context: ContextTypes.DEF
         context.bot_data["timezone"],
         update.update_id,
     )
-    await query.edit_message_text(reply)
+    await telegram_send(
+        lambda: query.edit_message_text(reply),
+        ledger_written=True,
+        context=f"category confirm update_id={update.update_id}",
+    )
 
 
 async def register_bot_commands(application: Application) -> None:

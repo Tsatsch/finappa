@@ -7,11 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 from cryptography.fernet import Fernet
+from telegram.error import NetworkError
 
 from app.config import Settings
 from app.db import Category, RecurringRule, get_sessionmaker, init_db, make_engine
 from app.handlers import BOT_COMMANDS, register_bot_commands
-from app.main import _configure_logging, backup_job, build_application, recurring_job
+from app.main import _configure_logging, backup_job, build_application, error_handler, recurring_job
 
 
 def test_configure_logging_suppresses_httpx_info_to_avoid_token_leak():
@@ -199,3 +200,43 @@ async def test_backup_job_without_channel_does_not_send_but_prunes(settings):
     context.bot.send_document.assert_not_called()
     remaining = sorted(p.name for p in snapshot_dir.glob("backup-*.db"))
     assert len(remaining) == 7
+
+
+async def test_error_handler_swallows_network_error(caplog):
+    settings = Settings(
+        telegram_bot_token="t",
+        allowed_telegram_user_id=1,
+        openai_api_key="k",
+        _env_file=None,
+    )
+    bot = AsyncMock()
+    context = SimpleNamespace(
+        error=NetworkError("drop"),
+        bot_data={"settings": settings},
+        bot=bot,
+    )
+
+    await error_handler(None, context)
+
+    bot.send_message.assert_not_called()
+    assert any("Telegram network error while processing update" in r.message for r in caplog.records)
+
+
+async def test_error_handler_notifies_on_non_network_errors():
+    settings = Settings(
+        telegram_bot_token="t",
+        allowed_telegram_user_id=1,
+        openai_api_key="k",
+        _env_file=None,
+    )
+    bot = AsyncMock()
+    context = SimpleNamespace(
+        error=RuntimeError("boom"),
+        bot_data={"settings": settings},
+        bot=bot,
+    )
+
+    await error_handler(None, context)
+
+    bot.send_message.assert_called_once()
+    assert "Something went wrong" in bot.send_message.call_args.kwargs["text"]

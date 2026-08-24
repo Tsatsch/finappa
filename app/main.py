@@ -4,7 +4,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from openai import OpenAI
+from telegram.error import NetworkError
 from telegram.ext import Application, ApplicationBuilder, ContextTypes
+
+from app.telegram_io import telegram_send
 
 from app.analytics import format_cents
 from app.backup import create_snapshot, encrypt_file, prune_snapshots
@@ -31,9 +34,13 @@ async def recurring_job(context: ContextTypes.DEFAULT_TYPE, at: datetime | None 
         fired = run_recurring_check(session, settings.timezone, at=at)
         fired_values = [(rule.label, rule.amount_cents) for rule in fired]
     for label, amount_cents in fired_values:
-        await context.bot.send_message(
-            chat_id=settings.allowed_telegram_user_id,
-            text=f"Recurring: logged {label} ({format_cents(amount_cents)}).",
+        await telegram_send(
+            lambda label=label, amount_cents=amount_cents: context.bot.send_message(
+                chat_id=settings.allowed_telegram_user_id,
+                text=f"Recurring: logged {label} ({format_cents(amount_cents)}).",
+            ),
+            ledger_written=True,
+            context=f"recurring {label}",
         )
 
 
@@ -70,11 +77,17 @@ async def backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if isinstance(context.error, NetworkError):
+        logger.warning("Telegram network error while processing update: %s", context.error)
+        return
     logger.error("Unhandled exception while processing update", exc_info=context.error)
     settings: Settings = context.bot_data["settings"]
-    await context.bot.send_message(
-        chat_id=settings.allowed_telegram_user_id,
-        text=f"Something went wrong: {context.error}",
+    await telegram_send(
+        lambda: context.bot.send_message(
+            chat_id=settings.allowed_telegram_user_id,
+            text=f"Something went wrong: {context.error}",
+        ),
+        context="error notification",
     )
 
 
