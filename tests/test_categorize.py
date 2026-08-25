@@ -3,8 +3,14 @@ from datetime import datetime, timezone
 import pytest
 
 from app.categories import CategoryName
-from app.categorize import RecatError, find_matching_merchant, recat_merchant, resolve_category
-from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
+from app.categorize import (
+    RecatError,
+    find_matching_merchant,
+    normalize_merchant_name,
+    recat_merchant,
+    resolve_category,
+)
+from app.db import Category, Merchant, MerchantAlias, Transaction, get_sessionmaker, init_db, make_engine
 
 
 @pytest.fixture
@@ -101,3 +107,23 @@ def test_find_matching_merchant_returns_match(session):
     merchant = find_matching_merchant(session, "Rewwe")
     assert merchant is not None
     assert merchant.name == "rewe"
+
+
+def test_normalize_merchant_name():
+    assert normalize_merchant_name("  Rewe City ") == "rewe city"
+
+
+def test_alias_resolves_before_creating_new_merchant(session):
+    merchant, groceries = resolve_category(session, "Rewe", CategoryName.GROCERIES)
+    session.add(
+        MerchantAlias(
+            alias_normalized="rewe city",
+            merchant_id=merchant.id,
+        )
+    )
+    session.commit()
+
+    hit, category = resolve_category(session, "Rewe City", CategoryName.DINING)
+    assert hit.id == merchant.id
+    assert category.name == "Groceries"  # canonical category wins
+    assert session.query(Merchant).filter_by(name="rewe city").count() == 0

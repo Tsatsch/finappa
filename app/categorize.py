@@ -3,7 +3,7 @@ import difflib
 from sqlalchemy.orm import Session
 
 from app.categories import CategoryName
-from app.db import Category, Merchant, Transaction
+from app.db import Category, Merchant, MerchantAlias, Transaction
 
 FUZZY_CUTOFF = 0.85
 
@@ -12,14 +12,20 @@ class RecatError(Exception):
     """User-facing error for /recat: unknown category or unknown merchant."""
 
 
-def _normalize(name: str) -> str:
+def normalize_merchant_name(name: str) -> str:
     return name.strip().lower()
 
 
 def find_matching_merchant(session: Session, merchant_name: str) -> Merchant | None:
     if not merchant_name:
         return None
-    normalized = _normalize(merchant_name)
+    normalized = normalize_merchant_name(merchant_name)
+    exact = session.query(Merchant).filter_by(name=normalized).one_or_none()
+    if exact is not None:
+        return exact
+    alias = session.query(MerchantAlias).filter_by(alias_normalized=normalized).one_or_none()
+    if alias is not None:
+        return session.get(Merchant, alias.merchant_id)
     known = {m.name: m for m in session.query(Merchant).all()}
     match = difflib.get_close_matches(normalized, known.keys(), n=1, cutoff=FUZZY_CUTOFF)
     return known[match[0]] if match else None
@@ -38,7 +44,7 @@ def resolve_category(
         return existing, category
 
     category = session.query(Category).filter_by(name=llm_category.value).one()
-    merchant = Merchant(name=_normalize(merchant_name), display_name=merchant_name, category_id=category.id)
+    merchant = Merchant(name=normalize_merchant_name(merchant_name), display_name=merchant_name, category_id=category.id)
     session.add(merchant)
     session.flush()
     return merchant, category
