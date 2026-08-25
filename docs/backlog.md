@@ -37,6 +37,9 @@ None currently.
 
 ## Shipped after v1
 
+- **Stats month compare** (2026-08-25) — side-by-side month KPIs + expense
+  category Δ table on the stats one-pager. Spec:
+  `docs/superpowers/specs/2026-08-25-stats-month-compare-design.md`.
 - **Reliability & ledger UX** (2026-08-25) — backup staleness alerts +
   `/backup_status`, startup missed-recurring DMs, `/summary [YYYY-MM]`,
   `/find`. Spec:

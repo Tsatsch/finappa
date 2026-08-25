@@ -90,6 +90,48 @@
     </div>
   </section>
 
+  <section class="compare-months" aria-label="Compare months">
+    <h2 class="section-title">Compare months</h2>
+    <p class="section-lede">Side-by-side totals and expense category changes.</p>
+    <div class="compare-columns">
+      <div class="compare-col">
+        <label>
+          Month A
+          <select id="compare-month-a"></select>
+        </label>
+        <dl class="compare-kpis">
+          <div><dt>Income</dt><dd id="compare-a-income">—</dd></div>
+          <div><dt>Expenses</dt><dd id="compare-a-expenses">—</dd></div>
+          <div><dt>Net</dt><dd id="compare-a-net">—</dd></div>
+        </dl>
+      </div>
+      <div class="compare-col">
+        <label>
+          Month B
+          <select id="compare-month-b"></select>
+        </label>
+        <dl class="compare-kpis">
+          <div><dt>Income</dt><dd id="compare-b-income">—</dd></div>
+          <div><dt>Expenses</dt><dd id="compare-b-expenses">—</dd></div>
+          <div><dt>Net</dt><dd id="compare-b-net">—</dd></div>
+        </dl>
+      </div>
+    </div>
+    <div class="table-scroll compare-table-scroll">
+      <table class="data-table compare-table" id="compare-table">
+        <thead>
+          <tr>
+            <th scope="col" class="th-left">Category</th>
+            <th scope="col" class="th-right" id="compare-th-a">A</th>
+            <th scope="col" class="th-right" id="compare-th-b">B</th>
+            <th scope="col" class="th-right">Δ</th>
+          </tr>
+        </thead>
+        <tbody id="compare-table-body"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="merchants-overview" aria-label="Merchant overview">
     <h2 class="section-title">Merchant overview</h2>
     <p class="section-lede">All expenses grouped by name. Filter and sort here — defaults to all time.</p>

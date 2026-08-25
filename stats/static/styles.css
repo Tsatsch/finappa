@@ -196,6 +196,107 @@ body {
   animation: rise 0.7s ease-out 0.28s both;
 }
 
+.compare-months {
+  margin-bottom: 2.25rem;
+  animation: rise 0.7s ease-out 0.26s both;
+}
+
+.compare-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.compare-col {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(247, 250, 252, 0.92);
+  box-shadow: var(--shadow);
+}
+
+.compare-col label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.compare-col select {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%234a6274' d='M1 1l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 0.75rem center;
+  padding: 0.65rem 2rem 0.65rem 0.75rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.compare-kpis {
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.compare-kpis > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.compare-kpis > div:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.compare-kpis dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.compare-kpis dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.compare-table-scroll {
+  max-height: min(50vh, 420px);
+}
+
+.compare-table {
+  min-width: 28rem;
+}
+
+.compare-table thead th {
+  padding: 0.7rem 1rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.compare-table thead th.th-right {
+  text-align: right;
+}
+
 .overview-filters {
   margin-bottom: 1rem;
 }
@@ -462,7 +563,8 @@ body {
 @media (max-width: 800px) {
   .filters,
   .kpis,
-  .charts {
+  .charts,
+  .compare-columns {
     grid-template-columns: 1fr;
   }
 

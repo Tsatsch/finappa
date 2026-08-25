@@ -29,6 +29,17 @@ function formatCents(cents) {
   return `${sign}${formatted} €`;
 }
 
+function formatDeltaCents(cents) {
+  if (cents === 0) return formatCents(0);
+  const sign = cents > 0 ? "+" : "−";
+  const abs = Math.abs(cents) / 100;
+  const formatted = abs.toLocaleString("de-DE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${sign}${formatted} €`;
+}
+
 function uniqueSorted(values) {
   return [...new Set(values)].sort((a, b) => (a > b ? 1 : a < b ? -1 : 0));
 }
@@ -335,6 +346,102 @@ function monthKey(t) {
   return `${t.local_year}-${String(t.local_month).padStart(2, "0")}`;
 }
 
+function availableMonthKeys(transactions) {
+  return uniqueSorted(transactions.map(monthKey));
+}
+
+function txsForMonthKey(transactions, key) {
+  return transactions.filter((t) => monthKey(t) === key);
+}
+
+function defaultCompareKeys(keys, now = new Date()) {
+  if (keys.length === 0) return { a: "", b: "" };
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prev = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+  const pick = (want, preferEarlier) => {
+    if (keys.includes(want)) return want;
+    if (preferEarlier) {
+      const earlier = keys.filter((k) => k < want);
+      return earlier.length ? earlier[earlier.length - 1] : keys[0];
+    }
+    const later = keys.filter((k) => k > want);
+    return later.length ? later[0] : keys[keys.length - 1];
+  };
+  return { a: pick(prev, true), b: pick(cur, false) };
+}
+
+function categoryExpenseDeltas(byCatA, byCatB) {
+  const names = uniqueSorted([...Object.keys(byCatA), ...Object.keys(byCatB)]);
+  return names
+    .map((name) => {
+      const a = byCatA[name] || 0;
+      const b = byCatB[name] || 0;
+      return { name, a, b, delta: b - a };
+    })
+    .filter((row) => row.a !== 0 || row.b !== 0)
+    .sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
+}
+
+function fillMonthKeySelect(select, keys, selected) {
+  select.innerHTML = "";
+  for (const key of keys) {
+    const el = document.createElement("option");
+    el.value = key;
+    el.textContent = key;
+    select.appendChild(el);
+  }
+  if (selected && keys.includes(selected)) {
+    select.value = selected;
+  } else if (keys.length) {
+    select.value = keys[keys.length - 1];
+  }
+}
+
+function populateCompareSelects(transactions) {
+  const keys = availableMonthKeys(transactions);
+  const defaults = defaultCompareKeys(keys);
+  fillMonthKeySelect($("compare-month-a"), keys, defaults.a);
+  fillMonthKeySelect($("compare-month-b"), keys, defaults.b);
+}
+
+function renderCompare() {
+  if (!ledger) return;
+  const keyA = $("compare-month-a").value;
+  const keyB = $("compare-month-b").value;
+  $("compare-th-a").textContent = keyA || "A";
+  $("compare-th-b").textContent = keyB || "B";
+
+  const summaryA = summarize(txsForMonthKey(ledger.transactions, keyA));
+  const summaryB = summarize(txsForMonthKey(ledger.transactions, keyB));
+
+  $("compare-a-income").textContent = formatCents(summaryA.income_cents);
+  $("compare-a-expenses").textContent = formatCents(summaryA.expense_cents);
+  $("compare-a-net").textContent = formatCents(summaryA.net_cents);
+  $("compare-b-income").textContent = formatCents(summaryB.income_cents);
+  $("compare-b-expenses").textContent = formatCents(summaryB.expense_cents);
+  $("compare-b-net").textContent = formatCents(summaryB.net_cents);
+
+  const rows = categoryExpenseDeltas(summaryA.by_category, summaryB.by_category);
+  const body = $("compare-table-body");
+  body.innerHTML = "";
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="4" class="empty">No expense differences.</td>';
+    body.appendChild(tr);
+    return;
+  }
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td class="cell-category">${escapeHtml(row.name)}</td>` +
+      `<td class="cell-num">${formatCents(row.a)}</td>` +
+      `<td class="cell-num">${formatCents(row.b)}</td>` +
+      `<td class="cell-num">${formatDeltaCents(row.delta)}</td>`;
+    body.appendChild(tr);
+  }
+}
+
 function renderMonthlyChart(transactions) {
   const keys = uniqueSorted(transactions.map(monthKey));
   const income = Object.fromEntries(keys.map((k) => [k, 0]));
@@ -436,6 +543,7 @@ function renderPeriod() {
 function render() {
   if (!ledger) return;
   renderPeriod();
+  renderCompare();
   renderOverviewTable();
 }
 
@@ -447,9 +555,13 @@ async function boot() {
   }
   ledger = await response.json();
   populateFilterSelects(ledger.transactions);
+  populateCompareSelects(ledger.transactions);
 
   for (const id of ["filter-year", "filter-month", "filter-category", "filter-type"]) {
     $(id).addEventListener("change", renderPeriod);
+  }
+  for (const id of ["compare-month-a", "compare-month-b"]) {
+    $(id).addEventListener("change", renderCompare);
   }
   for (const id of ["overview-filter-year", "overview-filter-month", "overview-filter-category"]) {
     $(id).addEventListener("change", renderOverviewTable);
