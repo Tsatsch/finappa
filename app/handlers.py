@@ -420,18 +420,22 @@ def _start_cleanup(
         return cleanup_session.id, proposals
 
 
-def _cleanup_keyboard(token: str) -> InlineKeyboardMarkup:
+def _cleanup_keyboard(token: str, index: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
-                    "Apply", callback_data=f"pclean:{token}:APPLY"
+                    "Apply", callback_data=f"pclean:{token}:{index}:APPLY"
                 ),
                 InlineKeyboardButton(
-                    "Skip", callback_data=f"pclean:{token}:SKIP"
+                    "Skip", callback_data=f"pclean:{token}:{index}:SKIP"
                 ),
             ],
-            [InlineKeyboardButton("Done", callback_data=f"pclean:{token}:DONE")],
+            [
+                InlineKeyboardButton(
+                    "Done", callback_data=f"pclean:{token}:{index}:DONE"
+                )
+            ],
         ]
     )
 
@@ -462,7 +466,7 @@ async def handle_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await telegram_send(
         lambda: update.message.reply_text(
             format_cleanup_prompt(proposals[0], 0, len(proposals)),
-            reply_markup=_cleanup_keyboard(token),
+            reply_markup=_cleanup_keyboard(token, 0),
         ),
         context="/cleanup",
     )
@@ -677,7 +681,8 @@ async def handle_cleanup_confirmation(
     if query.from_user.id != context.bot_data["settings"].allowed_telegram_user_id:
         return
     await telegram_send(lambda: query.answer())
-    _, token, choice = query.data.split(":", 2)
+    _, token, callback_index, choice = query.data.split(":", 3)
+    callback_index = int(callback_index)
     pending = context.bot_data["pending_cleanups"].get(token)
     if pending is None:
         await telegram_send(
@@ -687,6 +692,8 @@ async def handle_cleanup_confirmation(
         )
         return
 
+    if callback_index != pending["index"]:
+        return
     if choice == "DONE":
         context.bot_data["pending_cleanups"].pop(token, None)
         await telegram_send(
@@ -738,7 +745,7 @@ async def handle_cleanup_confirmation(
     text = f"{merge_line}\n\n{next_prompt}" if merge_line else next_prompt
     await telegram_send(
         lambda: query.edit_message_text(
-            text, reply_markup=_cleanup_keyboard(token)
+            text, reply_markup=_cleanup_keyboard(token, pending["index"])
         ),
         ledger_written=choice == "APPLY",
         context=f"/cleanup choice={choice}",

@@ -501,7 +501,7 @@ async def test_cleanup_done_does_not_reject_remaining_proposals(session_factory)
     }
     query = SimpleNamespace(
         from_user=SimpleNamespace(id=12345),
-        data="pclean:token123:DONE",
+        data="pclean:token123:0:DONE",
         answer=AsyncMock(),
         edit_message_text=AsyncMock(),
     )
@@ -516,10 +516,53 @@ async def test_cleanup_done_does_not_reject_remaining_proposals(session_factory)
         assert session.query(CleanupRejection).count() == 0
 
 
+async def test_cleanup_replayed_apply_does_not_apply_next_proposal(
+    session_factory, monkeypatch
+):
+    from app import handlers
+    from app.cleanup import CleanupProposal
+
+    proposals = [
+        CleanupProposal("Rewe City", "Rewe", "Same chain"),
+        CleanupProposal("Lidl Markt", "Lidl", "Same chain"),
+    ]
+    pending = {
+        "token123": {
+            "session_id": 1,
+            "proposals": proposals,
+            "index": 0,
+            "applied": 0,
+            "skipped": 0,
+        }
+    }
+    applied = []
+    monkeypatch.setattr(
+        handlers,
+        "_apply_cleanup_choice",
+        lambda _factory, _session_id, proposal, _choice: applied.append(proposal),
+    )
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=12345),
+        data="pclean:token123:0:APPLY",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(callback_query=query, update_id=104)
+    context = _cleanup_context(session_factory, pending)
+
+    await handle_cleanup_confirmation(update, context)
+    await handle_cleanup_confirmation(update, context)
+
+    assert applied == [proposals[0]]
+    assert pending["token123"]["index"] == 1
+    assert pending["token123"]["applied"] == 1
+    assert pending["token123"]["skipped"] == 0
+
+
 async def test_cleanup_callback_checks_user_before_answering(session_factory):
     query = SimpleNamespace(
         from_user=SimpleNamespace(id=999),
-        data="pclean:token123:DONE",
+        data="pclean:token123:0:DONE",
         answer=AsyncMock(),
         edit_message_text=AsyncMock(),
     )
