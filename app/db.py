@@ -114,9 +114,7 @@ class CleanupSessionMerge(Base):
     session_id: Mapped[int] = mapped_column(
         ForeignKey("cleanup_sessions.id"), nullable=False, index=True
     )
-    canonical_merchant_id: Mapped[int] = mapped_column(
-        ForeignKey("merchants.id"), nullable=False
-    )
+    canonical_merchant_id: Mapped[int] = mapped_column(Integer, nullable=False)
     absorbed_normalized: Mapped[str] = mapped_column(String, nullable=False)
     absorbed_display_name: Mapped[str] = mapped_column(String, nullable=False)
     absorbed_category_id: Mapped[int] = mapped_column(
@@ -140,6 +138,12 @@ def make_engine(db_path: str) -> Engine:
 
 
 def init_db(engine: Engine) -> None:
+    with engine.begin() as connection:
+        foreign_keys = connection.exec_driver_sql(
+            "PRAGMA foreign_key_list(cleanup_session_merges)"
+        ).fetchall()
+        if any(row[2] == "merchants" for row in foreign_keys):
+            connection.exec_driver_sql("DROP TABLE cleanup_session_merges")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     with Session() as session:

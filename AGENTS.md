@@ -49,6 +49,11 @@ Compose; the bot service still has no `ports:` key.
   every past transaction for that merchant in one statement. Never implement it
   as compensating (reversal + re-entry) transactions — that pollutes every future
   `/summary` and `/export` with zero-sum rows.
+- **Merchant cleanup never rewrites transaction categories.** A merge only
+  changes `merchant_id`, and merchants from different categories cannot merge.
+- **Pending cleanups are in-memory.** `bot_data["pending_cleanups"]` is
+  deliberate, like `pending_confirmations`; a restart only requires `/cleanup`
+  to be run again.
 - **Uncertain new-merchant categorization holds for confirmation, never
   guesses.** A new or merchant-less item where the LLM sets
   `category_confident: false` is never inserted until the user taps a
@@ -87,6 +92,7 @@ Compose; the bot service still has no `ports:` key.
 | `app/db.py` | SQLAlchemy models, WAL-mode engine, category seeding |
 | `app/extractor.py` | OpenAI structured extraction + all-or-nothing boundary validation |
 | `app/categorize.py` | Fuzzy merchant→category matching (`difflib`), `/recat` backfill |
+| `app/cleanup.py` | Merchant merge proposals, same-category merges, rejection filtering, and cleanup undo |
 | `app/analytics.py` | Berlin/UTC month-boundary math, `/summary` aggregation, money formatting |
 | `app/recurring.py` | `recurring.yml` loader, idempotent daily recurring check |
 | `app/backup.py` | `VACUUM INTO` snapshotting, Fernet encryption, local pruning |

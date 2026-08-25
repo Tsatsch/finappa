@@ -122,6 +122,24 @@ def test_filter_keeps_same_category_pair(session):
     assert kept[0].from_name == "Rewe City"
 
 
+def test_filter_drops_reciprocal_pair(session):
+    resolve_category(session, "Rewe", CategoryName.GROCERIES)
+    resolve_category(session, "Rewe City", CategoryName.GROCERIES)
+    session.commit()
+
+    kept = filter_proposals(
+        session,
+        [
+            CleanupProposal("Rewe City", "Rewe", "variant"),
+            CleanupProposal("Rewe", "Rewe City", "reciprocal"),
+        ],
+    )
+
+    assert [(proposal.from_name, proposal.to_name) for proposal in kept] == [
+        ("Rewe City", "Rewe")
+    ]
+
+
 def test_apply_merge_moves_txs_keeps_category_creates_alias(session):
     rewe, city, groceries = _two_rewe_variants(session)
     dining = session.query(Category).filter_by(name="Dining").one()
@@ -154,6 +172,21 @@ def test_apply_merge_rejects_cross_category(session):
     sess = start_cleanup_session(session)
     with pytest.raises(CleanupError, match="categor"):
         apply_merge(session, sess.id, "Cafe", "Rewe")
+
+
+def test_apply_merge_allows_chained_targets(session):
+    resolve_category(session, "Shop A", CategoryName.GROCERIES)
+    resolve_category(session, "Shop B", CategoryName.GROCERIES)
+    resolve_category(session, "Shop C", CategoryName.GROCERIES)
+    session.commit()
+    cleanup_session = start_cleanup_session(session)
+
+    apply_merge(session, cleanup_session.id, "Shop A", "Shop B")
+    apply_merge(session, cleanup_session.id, "Shop B", "Shop C")
+
+    assert session.query(Merchant).filter_by(name="shop c").one()
+    assert session.query(Merchant).filter_by(name="shop a").one_or_none() is None
+    assert session.query(Merchant).filter_by(name="shop b").one_or_none() is None
 
 
 def test_reject_then_filter_excludes_pair(session):
@@ -190,6 +223,20 @@ def test_undo_restores_absorbed_merchant_and_txs(session):
 def test_undo_when_nothing_raises(session):
     with pytest.raises(CleanupError):
         undo_last_cleanup_session(session)
+
+
+def test_undo_skips_newer_empty_session(session):
+    _rewe, _city, _groceries = _two_rewe_variants(session)
+    merged_session = start_cleanup_session(session)
+    apply_merge(session, merged_session.id, "Rewe City", "Rewe")
+    empty_session = start_cleanup_session(session)
+
+    msg = undo_last_cleanup_session(session)
+
+    assert "Restored 1 merchant merges." == msg
+    assert session.query(Merchant).filter_by(name="rewe city").one()
+    assert session.get(CleanupSession, merged_session.id).undone_at is not None
+    assert session.get(CleanupSession, empty_session.id).undone_at is None
 
 
 def test_format_cleanup_prompt():

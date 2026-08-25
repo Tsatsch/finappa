@@ -100,6 +100,11 @@ locking yourself out of a fresh cloud box means a rescue-console trip.
 
 ## Deploying a change
 
+Before rebuilding, update the live `.env` for the current model defaults:
+`OPENAI_MODEL=gpt-5.6-luna`, `OPENAI_REASONING_EFFORT=none`,
+`OPENAI_MODEL_HEAVY=gpt-5.6-terra`, and
+`OPENAI_REASONING_EFFORT_HEAVY=medium`.
+
 ```bash
 ssh <host>
 cd finappa

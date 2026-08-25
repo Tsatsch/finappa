@@ -74,6 +74,39 @@ def test_merchant_alias_and_cleanup_tables_exist(tmp_path):
     assert "cleanup_session_merges" in names
 
 
+def test_init_db_removes_legacy_canonical_merchant_fk(tmp_path):
+    engine = make_engine(str(tmp_path / "test.db"))
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE cleanup_session_merges (
+                    id INTEGER PRIMARY KEY,
+                    session_id INTEGER NOT NULL REFERENCES cleanup_sessions(id),
+                    canonical_merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                    absorbed_normalized VARCHAR NOT NULL,
+                    absorbed_display_name VARCHAR NOT NULL,
+                    absorbed_category_id INTEGER NOT NULL REFERENCES categories(id),
+                    alias_normalized VARCHAR NOT NULL,
+                    tx_ids_json TEXT NOT NULL
+                )
+                """
+            )
+        )
+
+    init_db(engine)
+
+    with engine.connect() as conn:
+        foreign_key_targets = {
+            row[2]
+            for row in conn.execute(
+                text("PRAGMA foreign_key_list(cleanup_session_merges)")
+            )
+        }
+    assert "merchants" not in foreign_key_targets
+    assert "cleanup_sessions" in foreign_key_targets
+
+
 def test_cleanup_rejection_pair_unique(tmp_path):
     from datetime import datetime, timezone
 

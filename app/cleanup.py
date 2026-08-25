@@ -147,6 +147,7 @@ def filter_proposals(
     session: Session, proposals: list[CleanupProposal]
 ) -> list[CleanupProposal]:
     kept = []
+    seen_pairs: set[tuple[int, int]] = set()
     for proposal in proposals:
         absorbed = _resolve_merchant(session, proposal.from_name)
         canonical = _resolve_merchant(session, proposal.to_name)
@@ -157,6 +158,9 @@ def filter_proposals(
             or absorbed.category_id != canonical.category_id
         ):
             continue
+        merchant_pair = tuple(sorted((absorbed.id, canonical.id)))
+        if merchant_pair in seen_pairs:
+            continue
         left, right = rejection_pair(proposal.from_name, proposal.to_name)
         rejected = (
             session.query(CleanupRejection)
@@ -165,6 +169,7 @@ def filter_proposals(
         )
         if rejected is None:
             kept.append(proposal)
+            seen_pairs.add(merchant_pair)
     return kept
 
 
@@ -247,6 +252,10 @@ def reject_proposal(session: Session, from_name: str, to_name: str) -> None:
 def undo_last_cleanup_session(session: Session) -> str:
     cleanup_session = (
         session.query(CleanupSession)
+        .join(
+            CleanupSessionMerge,
+            CleanupSessionMerge.session_id == CleanupSession.id,
+        )
         .filter(CleanupSession.undone_at.is_(None))
         .order_by(CleanupSession.id.desc())
         .first()

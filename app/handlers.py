@@ -708,6 +708,7 @@ async def handle_cleanup_confirmation(
         return
 
     proposal = pending["proposals"][pending["index"]]
+    apply_succeeded = False
     try:
         merge_line = await asyncio.to_thread(
             _apply_cleanup_choice,
@@ -717,11 +718,11 @@ async def handle_cleanup_confirmation(
             choice,
         )
     except CleanupError as exc:
-        await telegram_send(lambda: query.edit_message_text(str(exc)))
-        return
-
-    counter = "applied" if choice == "APPLY" else "skipped"
-    pending[counter] += 1
+        merge_line = str(exc)
+    else:
+        counter = "applied" if choice == "APPLY" else "skipped"
+        pending[counter] += 1
+        apply_succeeded = choice == "APPLY"
     pending["index"] += 1
     if pending["index"] >= len(pending["proposals"]):
         context.bot_data["pending_cleanups"].pop(token, None)
@@ -732,7 +733,7 @@ async def handle_cleanup_confirmation(
         text = f"{merge_line}\n{summary}" if merge_line else summary
         await telegram_send(
             lambda: query.edit_message_text(text),
-            ledger_written=choice == "APPLY",
+            ledger_written=apply_succeeded,
             context=f"/cleanup choice={choice}",
         )
         return
