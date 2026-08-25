@@ -12,6 +12,7 @@ from app.backup import (
     prune_snapshots,
     stale_backup_message,
 )
+from app.categories import CategoryName
 from app.db import init_db, make_engine
 
 
@@ -28,7 +29,7 @@ def test_create_snapshot_produces_readable_database(tmp_path):
     conn = sqlite3.connect(str(snapshot_path))
     count = conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
     conn.close()
-    assert count == 14
+    assert count == len(CategoryName)
 
 
 def test_encrypt_decrypt_round_trip(tmp_path):
@@ -48,7 +49,7 @@ def test_encrypt_decrypt_round_trip(tmp_path):
     conn = sqlite3.connect(str(output_path))
     count = conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
     conn.close()
-    assert count == 14
+    assert count == len(CategoryName)
 
 
 def test_prune_snapshots_keeps_newest_n(tmp_path):

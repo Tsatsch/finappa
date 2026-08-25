@@ -4,6 +4,7 @@ from enum import StrEnum
 class CategoryName(StrEnum):
     GROCERIES = "Groceries"
     DINING = "Dining"
+    ALCOHOL = "Alcohol"
     TRANSPORT = "Transport"
     FUEL = "Fuel"
     HOUSING = "Housing"

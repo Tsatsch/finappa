@@ -6,7 +6,16 @@ from app.analytics import monthly_summary
 from app.categories import CategoryName
 from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
 from app.extractor import ExtractionError, ExtractionResult, TransactionItem, validate_extraction
-from app.ledger import FIND_MAX, FIND_USAGE, delete_text, edit_text, find_text, recent_text
+from app.ledger import (
+    FIND_MAX,
+    FIND_USAGE,
+    apply_category_edit_merchant,
+    apply_category_edit_row,
+    delete_text,
+    edit_text,
+    find_text,
+    recent_text,
+)
 
 
 @pytest.fixture
@@ -125,26 +134,75 @@ def test_delete_text_unknown_id(session_factory):
 
 def test_edit_text_amount(session_factory):
     tx_id = _add_expense(session_factory, amount_cents=3000)
-    reply = edit_text(session_factory, "Europe/Berlin", tx_id, "amount", "35.50")
-    assert reply.startswith(f"Updated #{tx_id}")
-    assert "35,50 €" in reply
+    outcome = edit_text(session_factory, "Europe/Berlin", tx_id, "amount", "35.50")
+    assert outcome.pending is None
+    assert outcome.reply.startswith(f"Updated #{tx_id}")
+    assert "35,50 €" in outcome.reply
     with session_factory() as session:
         assert session.get(Transaction, tx_id).amount_cents == 3550
 
 
-def test_edit_text_category(session_factory):
-    tx_id = _add_expense(session_factory)
-    reply = edit_text(session_factory, "Europe/Berlin", tx_id, "category", "Dining")
-    assert "Dining" in reply
+def test_edit_text_category_without_merchant_updates_immediately(session_factory):
+    tx_id = _add_expense(session_factory, with_merchant=False, notes="cash tip")
+    outcome = edit_text(session_factory, "Europe/Berlin", tx_id, "category", "Dining")
+    assert outcome.pending is None
+    assert "Dining" in outcome.reply
     with session_factory() as session:
         dining = session.query(Category).filter_by(name="Dining").one()
         assert session.get(Transaction, tx_id).category_id == dining.id
 
 
+def test_edit_text_category_with_merchant_holds_for_confirm(session_factory):
+    tx_id = _add_expense(session_factory, merchant_key="rewe")
+    outcome = edit_text(session_factory, "Europe/Berlin", tx_id, "category", "Dining")
+    assert outcome.pending is not None
+    assert outcome.pending.category_name == "Dining"
+    assert "merchant memory" in outcome.reply
+    with session_factory() as session:
+        groceries = session.query(Category).filter_by(name="Groceries").one()
+        assert session.get(Transaction, tx_id).category_id == groceries.id
+
+
+def test_apply_category_edit_row_only(session_factory):
+    tx_id = _add_expense(session_factory, merchant_key="rewe")
+    _add_expense(session_factory, merchant_key="rewe", amount_cents=500)
+    reply = apply_category_edit_row(session_factory, "Europe/Berlin", tx_id, "Dining")
+    assert "Dining" in reply
+    with session_factory() as session:
+        dining = session.query(Category).filter_by(name="Dining").one()
+        groceries = session.query(Category).filter_by(name="Groceries").one()
+        merchant_id = session.get(Transaction, tx_id).merchant_id
+        rows = session.query(Transaction).filter_by(merchant_id=merchant_id).all()
+        assert sum(1 for r in rows if r.category_id == dining.id) == 1
+        assert sum(1 for r in rows if r.category_id == groceries.id) == 1
+        assert session.get(Merchant, merchant_id).category_id == groceries.id
+
+
+def test_apply_category_edit_merchant_backfills(session_factory):
+    tx_id = _add_expense(session_factory, merchant_key="rewe")
+    _add_expense(session_factory, merchant_key="rewe", amount_cents=500)
+    with session_factory() as session:
+        merchant_id = session.get(Transaction, tx_id).merchant_id
+    reply = apply_category_edit_merchant(
+        session_factory, "Europe/Berlin", tx_id, "Dining", merchant_id
+    )
+    assert "2 past transaction" in reply
+    with session_factory() as session:
+        dining = session.query(Category).filter_by(name="Dining").one()
+        assert session.get(Merchant, merchant_id).category_id == dining.id
+        assert (
+            session.query(Transaction)
+            .filter_by(merchant_id=merchant_id, category_id=dining.id)
+            .count()
+            == 2
+        )
+
+
 def test_edit_text_date(session_factory):
     tx_id = _add_expense(session_factory)
-    reply = edit_text(session_factory, "Europe/Berlin", tx_id, "date", "2026-07-15")
-    assert "2026-07-15" in reply
+    outcome = edit_text(session_factory, "Europe/Berlin", tx_id, "date", "2026-07-15")
+    assert outcome.pending is None
+    assert "2026-07-15" in outcome.reply
     with session_factory() as session:
         tx = session.get(Transaction, tx_id)
         assert tx.ts.month == 7
@@ -153,14 +211,18 @@ def test_edit_text_date(session_factory):
 
 def test_edit_text_blocks_recurring(session_factory):
     tx_id = _add_expense(session_factory, source="recurring")
-    reply = edit_text(session_factory, "Europe/Berlin", tx_id, "amount", "10")
-    assert "recurring.yml" in reply
+    outcome = edit_text(session_factory, "Europe/Berlin", tx_id, "amount", "10")
+    assert "recurring.yml" in outcome.reply
 
 
 def test_edit_text_rejects_future_date(session_factory):
     tx_id = _add_expense(session_factory)
-    reply = edit_text(session_factory, "Europe/Berlin", tx_id, "date", "2099-01-01")
-    assert reply == "That date is in the future."
+    outcome = edit_text(session_factory, "Europe/Berlin", tx_id, "date", "2099-01-01")
+    assert outcome.reply == "That date is in the future."
+
+
+def test_alcohol_category_exists():
+    assert CategoryName.ALCOHOL.value == "Alcohol"
 
 
 def test_find_text_matches_merchant_case_insensitive(session_factory):

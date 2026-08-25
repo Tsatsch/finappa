@@ -40,6 +40,7 @@ def test_build_application_wires_bot_data_and_jobs(settings, tmp_path):
     assert application.bot_data["openai_model"] == "gpt-4o-mini"
     assert "session_factory" in application.bot_data
     assert application.bot_data["pending_confirmations"] == {}
+    assert application.bot_data["pending_edits"] == {}
     assert application.post_init is register_bot_commands
 
     job_names = {job.name for job in application.job_queue.jobs()}

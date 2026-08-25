@@ -120,6 +120,7 @@ stats site filters.
 |----------|-------------|
 | Groceries | Supermarkets, food shops |
 | Dining | Restaurants, cafés, delivery |
+| Alcohol | Bars, kiosks, beer, going-out drinks |
 | Transport | Public transit, taxis, parking |
 | Fuel | Petrol, charging |
 | Housing | Rent, mortgage |

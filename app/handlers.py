@@ -27,6 +27,9 @@ from app.db import Category, Merchant, Transaction, get_sessionmaker
 from app.extractor import ExtractionError, extract_transactions
 from app.ledger import (
     EDIT_USAGE,
+    PendingCategoryEdit,
+    apply_category_edit_merchant,
+    apply_category_edit_row,
     delete_text,
     edit_text,
     find_text,
@@ -410,17 +413,52 @@ async def handle_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if len(args) < 3 or not args[0].isdigit():
         await telegram_send(lambda: update.message.reply_text(EDIT_USAGE))
         return
-    reply = edit_text(
+    outcome = edit_text(
         context.bot_data["session_factory"],
         context.bot_data["timezone"],
         int(args[0]),
         args[1],
         " ".join(args[2:]),
     )
+    if outcome.pending is not None:
+        pending_id = secrets.token_hex(4)
+        pending = PendingCategoryEdit(
+            pending_id=pending_id,
+            tx_id=outcome.pending.tx_id,
+            category_name=outcome.pending.category_name,
+            merchant_id=outcome.pending.merchant_id,
+            merchant_display=outcome.pending.merchant_display,
+        )
+        context.bot_data["pending_edits"][pending_id] = pending
+        await telegram_send(
+            lambda: update.message.reply_text(
+                outcome.reply, reply_markup=_edit_category_keyboard(pending_id)
+            ),
+            context=f"/edit confirm update_id={update.update_id}",
+        )
+        return
     await telegram_send(
-        lambda: update.message.reply_text(reply),
-        ledger_written=reply.startswith("Updated"),
+        lambda: update.message.reply_text(outcome.reply),
+        ledger_written=outcome.reply.startswith("Updated"),
         context=f"/edit update_id={update.update_id}",
+    )
+
+
+def _edit_category_keyboard(pending_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "This row only", callback_data=f"pedit:{pending_id}:ROW"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "Merchant + all past", callback_data=f"pedit:{pending_id}:MERCHANT"
+                )
+            ],
+            [InlineKeyboardButton("Cancel", callback_data=f"pedit:{pending_id}:CANCEL")],
+        ]
     )
 
 
@@ -459,6 +497,52 @@ async def handle_category_confirmation(update: Update, context: ContextTypes.DEF
     )
 
 
+async def handle_edit_category_confirmation(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    if query.from_user.id != context.bot_data["settings"].allowed_telegram_user_id:
+        return
+    await telegram_send(lambda: query.answer())
+    _, pending_id, choice = query.data.split(":", 2)
+    pending = context.bot_data["pending_edits"].pop(pending_id, None)
+    if pending is None:
+        await telegram_send(
+            lambda: query.edit_message_text(
+                "This edit confirmation expired — run /edit again."
+            )
+        )
+        return
+    if choice == "CANCEL":
+        await telegram_send(lambda: query.edit_message_text("Edit cancelled."))
+        return
+    if choice == "ROW":
+        reply = await asyncio.to_thread(
+            apply_category_edit_row,
+            context.bot_data["session_factory"],
+            context.bot_data["timezone"],
+            pending.tx_id,
+            pending.category_name,
+        )
+    elif choice == "MERCHANT":
+        reply = await asyncio.to_thread(
+            apply_category_edit_merchant,
+            context.bot_data["session_factory"],
+            context.bot_data["timezone"],
+            pending.tx_id,
+            pending.category_name,
+            pending.merchant_id,
+        )
+    else:
+        await telegram_send(lambda: query.edit_message_text("Unknown choice."))
+        return
+    await telegram_send(
+        lambda: query.edit_message_text(reply),
+        ledger_written=reply.startswith("Updated"),
+        context=f"/edit confirm choice={choice}",
+    )
+
+
 async def register_bot_commands(application: Application) -> None:
     await application.bot.set_my_commands(BOT_COMMANDS)
 
@@ -486,3 +570,6 @@ def register_handlers(application: Application, allowed_user_id: int) -> None:
         MessageHandler(filters.TEXT & ~filters.COMMAND & user_filter, handle_message)
     )
     application.add_handler(CallbackQueryHandler(handle_category_confirmation, pattern=r"^pconf:"))
+    application.add_handler(
+        CallbackQueryHandler(handle_edit_category_confirmation, pattern=r"^pedit:")
+    )

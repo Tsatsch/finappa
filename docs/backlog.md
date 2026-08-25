@@ -37,6 +37,10 @@ None currently.
 
 ## Shipped after v1
 
+- **Alcohol category & edit-category confirm** (2026-08-25) — `Alcohol` in
+  `CategoryName`; `/edit … category` with a merchant asks row-only vs
+  merchant+history. Spec:
+  `docs/superpowers/specs/2026-08-25-alcohol-and-edit-category-confirm-design.md`.
 - **Stats section tabs** (2026-08-25) — Overview / Compare / Merchants hash
   tabs; compare table header clip fixed. Spec:
   `docs/superpowers/specs/2026-08-25-stats-section-tabs-design.md`.

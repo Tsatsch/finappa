@@ -149,6 +149,7 @@ def build_application(settings: Settings, recurring_yaml_path: str = "recurring.
     application.bot_data["timezone"] = settings.timezone
     application.bot_data["settings"] = settings
     application.bot_data["pending_confirmations"] = {}
+    application.bot_data["pending_edits"] = {}
 
     register_handlers(application, settings.allowed_telegram_user_id)
     application.add_error_handler(error_handler)

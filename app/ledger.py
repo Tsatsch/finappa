@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -15,6 +16,21 @@ RECENT_MAX = 50
 RECENT_DEFAULT = 10
 FIND_USAGE = "Usage: /find <query>"
 FIND_MAX = 20
+
+
+@dataclass
+class PendingCategoryEdit:
+    pending_id: str
+    tx_id: int
+    category_name: str
+    merchant_id: int
+    merchant_display: str
+
+
+@dataclass
+class EditOutcome:
+    reply: str
+    pending: PendingCategoryEdit | None = None
 
 
 def local_date_for_ts(ts: datetime, tz_name: str) -> date:
@@ -130,17 +146,17 @@ def _parse_local_date(value: str, tz_name: str) -> date:
     return parsed
 
 
-def edit_text(session_factory, tz_name: str, tx_id: int, field: str, value: str) -> str:
+def edit_text(session_factory, tz_name: str, tx_id: int, field: str, value: str) -> EditOutcome:
     field = field.lower()
     if field not in {"amount", "category", "date"}:
-        return EDIT_USAGE
+        return EditOutcome(EDIT_USAGE)
 
     with session_factory() as session:
         tx = _get_transaction(session, tx_id)
         if tx is None:
-            return f"No transaction #{tx_id}."
+            return EditOutcome(f"No transaction #{tx_id}.")
         if tx.source == "recurring":
-            return _recurring_block_message(tx_id)
+            return EditOutcome(_recurring_block_message(tx_id))
 
         try:
             if field == "amount":
@@ -150,7 +166,27 @@ def edit_text(session_factory, tz_name: str, tx_id: int, field: str, value: str)
                     category_enum = CategoryName(value)
                 except ValueError:
                     valid = ", ".join(c.value for c in CategoryName)
-                    return f"Unknown category '{value}'. Valid categories: {valid}"
+                    return EditOutcome(
+                        f"Unknown category '{value}'. Valid categories: {valid}"
+                    )
+                if tx.merchant_id is not None:
+                    merchant = session.get(Merchant, tx.merchant_id)
+                    pending = PendingCategoryEdit(
+                        pending_id="",  # filled by handler
+                        tx_id=tx_id,
+                        category_name=category_enum.value,
+                        merchant_id=tx.merchant_id,
+                        merchant_display=merchant.display_name if merchant else "merchant",
+                    )
+                    return EditOutcome(
+                        reply=(
+                            f"Change #{tx_id} ({pending.merchant_display}) → "
+                            f"{category_enum.value}?\n"
+                            "This row only, or update merchant memory and all past "
+                            "transactions for this merchant?"
+                        ),
+                        pending=pending,
+                    )
                 category = session.query(Category).filter_by(name=category_enum.value).one()
                 tx.category_id = category.id
             else:
@@ -158,18 +194,61 @@ def edit_text(session_factory, tz_name: str, tx_id: int, field: str, value: str)
                 tx.ts = ts_from_local_date(local, tz_name)
         except ValueError as exc:
             if str(exc) == "amount out of range":
-                return (
+                return EditOutcome(
                     f"Nothing changed — an amount of {value} doesn't look right.\n"
                     f"{EDIT_USAGE}"
                 )
             if str(exc) == "future date":
-                return "That date is in the future."
-            return "Use YYYY-MM-DD, e.g. 2026-08-10"
+                return EditOutcome("That date is in the future.")
+            return EditOutcome("Use YYYY-MM-DD, e.g. 2026-08-10")
 
         session.commit()
         session.refresh(tx)
         line = format_transaction_line(session, tx, tz_name)
+    return EditOutcome(f"Updated {line}")
+
+
+def apply_category_edit_row(session_factory, tz_name: str, tx_id: int, category_name: str) -> str:
+    with session_factory() as session:
+        tx = _get_transaction(session, tx_id)
+        if tx is None:
+            return f"No transaction #{tx_id}."
+        if tx.source == "recurring":
+            return _recurring_block_message(tx_id)
+        category = session.query(Category).filter_by(name=category_name).one()
+        tx.category_id = category.id
+        session.commit()
+        session.refresh(tx)
+        line = format_transaction_line(session, tx, tz_name)
     return f"Updated {line}"
+
+
+def apply_category_edit_merchant(
+    session_factory, tz_name: str, tx_id: int, category_name: str, merchant_id: int
+) -> str:
+    with session_factory() as session:
+        tx = _get_transaction(session, tx_id)
+        if tx is None:
+            return f"No transaction #{tx_id}."
+        if tx.source == "recurring":
+            return _recurring_block_message(tx_id)
+        merchant = session.get(Merchant, merchant_id)
+        if merchant is None:
+            return f"No merchant for #{tx_id}."
+        category = session.query(Category).filter_by(name=category_name).one()
+        merchant.category_id = category.id
+        count = (
+            session.query(Transaction)
+            .filter_by(merchant_id=merchant.id)
+            .update({"category_id": category.id}, synchronize_session="fetch")
+        )
+        session.commit()
+        session.refresh(tx)
+        line = format_transaction_line(session, tx, tz_name)
+    return (
+        f"Updated {line}\n"
+        f"{merchant.display_name} → {category_name}, {count} past transaction(s) updated."
+    )
 
 
 def logged_item_line(
