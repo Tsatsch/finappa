@@ -8,7 +8,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     allowed_telegram_user_id: int
     openai_api_key: str
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5.6-luna"
+    openai_reasoning_effort: str = "none"
+    openai_model_heavy: str = "gpt-5.6-terra"
+    openai_reasoning_effort_heavy: str = "medium"
     backup_channel_id: int | None = None
     backup_encryption_key: str | None = None
     timezone: str = "Europe/Berlin"
