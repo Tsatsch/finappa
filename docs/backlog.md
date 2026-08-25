@@ -37,6 +37,9 @@ None currently.
 
 ## Shipped after v1
 
+- **Stats section tabs** (2026-08-25) — Overview / Compare / Merchants hash
+  tabs; compare table header clip fixed. Spec:
+  `docs/superpowers/specs/2026-08-25-stats-section-tabs-design.md`.
 - **Stats month compare** (2026-08-25) — side-by-side month KPIs + expense
   category Δ table on the stats one-pager. Spec:
   `docs/superpowers/specs/2026-08-25-stats-month-compare-design.md`.

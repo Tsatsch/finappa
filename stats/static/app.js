@@ -368,7 +368,13 @@ function defaultCompareKeys(keys, now = new Date()) {
     const later = keys.filter((k) => k > want);
     return later.length ? later[0] : keys[keys.length - 1];
   };
-  return { a: pick(prev, true), b: pick(cur, false) };
+  let a = pick(prev, true);
+  let b = pick(cur, false);
+  if (a === b && keys.length >= 2) {
+    const idx = keys.indexOf(b);
+    a = keys[Math.max(0, idx - 1)];
+  }
+  return { a, b };
 }
 
 function categoryExpenseDeltas(byCatA, byCatB) {
@@ -547,6 +553,29 @@ function render() {
   renderOverviewTable();
 }
 
+const VALID_TABS = new Set(["overview", "compare", "merchants"]);
+
+function activeTabFromHash() {
+  const raw = (location.hash || "#overview").replace(/^#/, "");
+  return VALID_TABS.has(raw) ? raw : "overview";
+}
+
+function showTab(tab) {
+  const name = VALID_TABS.has(tab) ? tab : "overview";
+  for (const panel of document.querySelectorAll(".tab-panel")) {
+    const on = panel.dataset.panel === name;
+    panel.hidden = !on;
+    panel.classList.toggle("is-active", on);
+  }
+  for (const link of document.querySelectorAll(".site-tab")) {
+    link.classList.toggle("is-active", link.dataset.tab === name);
+  }
+  if (name === "overview") {
+    // Chart.js needs a visible canvas to size correctly after tab switches.
+    renderPeriod();
+  }
+}
+
 async function boot() {
   const response = await fetch("/api/data");
   if (!response.ok) {
@@ -580,6 +609,8 @@ async function boot() {
     });
   }
 
+  window.addEventListener("hashchange", () => showTab(activeTabFromHash()));
+  showTab(activeTabFromHash());
   render();
 }
 

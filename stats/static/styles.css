@@ -85,6 +85,49 @@ body {
   line-height: 1.5;
 }
 
+.site-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 1.5rem;
+  padding: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(247, 250, 252, 0.9);
+  box-shadow: var(--shadow);
+  width: fit-content;
+  max-width: 100%;
+  animation: rise 0.7s ease-out 0.05s both;
+}
+
+.site-tab {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.55rem 1.1rem;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.site-tab:hover {
+  color: var(--ink);
+  background: rgba(19, 41, 61, 0.05);
+}
+
+.site-tab.is-active {
+  color: white;
+  background: linear-gradient(145deg, #0f766e 0%, #134e4a 100%);
+}
+
+.tab-panel[hidden] {
+  display: none !important;
+}
+
 .filters {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -276,25 +319,70 @@ body {
 }
 
 .compare-table-scroll {
+  overflow: auto;
   max-height: min(50vh, 420px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow);
 }
 
 .compare-table {
+  width: 100%;
   min-width: 28rem;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: 0.92rem;
 }
 
 .compare-table thead th {
-  padding: 0.7rem 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.75rem 1rem;
+  background: #f0f5f9;
+  border-bottom: 2px solid var(--line);
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   text-align: left;
+  white-space: nowrap;
 }
 
 .compare-table thead th.th-right {
   text-align: right;
+}
+
+.compare-table tbody td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.compare-table tbody tr:nth-child(even) {
+  background: rgba(238, 243, 247, 0.45);
+}
+
+.compare-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.compare-table .cell-category {
+  font-weight: 500;
+}
+
+.compare-table .cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.compare-table td.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 2rem 1rem;
 }
 
 .overview-filters {
