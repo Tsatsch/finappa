@@ -104,8 +104,9 @@ After the existing startup recurring check (exact-day fire path unchanged), run 
 For each **active** `RecurringRule` where:
 
 - `day_of_month < today_local.day` (day already past this Berlin month), and
-- no `Transaction` with that `recurring_rule_id` in
-  `[month_start_utc, next_month_utc)` from `month_bounds_utc`
+- no matching ledger row this month: either
+  `Transaction.recurring_rule_id == rule.id`, **or** a manual row with the
+  same `amount_cents` and (`notes == label` or merchant `display_name == label`)
 
 → collect; **do not insert**.
 

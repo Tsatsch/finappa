@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -16,11 +16,24 @@ def session(tmp_path):
         yield s
 
 
-def _add_rule(session, key="rent", day_of_month=1, amount_cents=120000, active=True):
-    category = session.query(Category).filter_by(name="Housing").one()
+def _add_rule(
+    session,
+    key="rent",
+    day_of_month=1,
+    amount_cents=120000,
+    active=True,
+    label="Rent",
+    category_name="Housing",
+):
+    category = session.query(Category).filter_by(name=category_name).one()
     rule = RecurringRule(
-        key=key, label="Rent", amount_cents=amount_cents, type="EXPENSE",
-        category_id=category.id, day_of_month=day_of_month, active=active,
+        key=key,
+        label=label,
+        amount_cents=amount_cents,
+        type="EXPENSE",
+        category_id=category.id,
+        day_of_month=day_of_month,
+        active=active,
     )
     session.add(rule)
     session.commit()
@@ -80,6 +93,86 @@ def test_missed_recurring_empty_when_already_logged(session):
     )
     at = datetime(2026, 3, 15, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
     assert missed_recurring_rules(session, "Europe/Berlin", at=at) == []
+
+
+def test_missed_recurring_empty_when_manual_row_matches_label_and_amount(session):
+    """Manual logs have no recurring_rule_id; same notes+amount still counts."""
+    rule = _add_rule(session, day_of_month=1, amount_cents=2999)
+    at = datetime(2026, 3, 15, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    session.add(
+        Transaction(
+            ts=datetime(2026, 3, 2, 12, 0, tzinfo=ZoneInfo("Europe/Berlin")).astimezone(
+                timezone.utc
+            ),
+            amount_cents=rule.amount_cents,
+            type="EXPENSE",
+            category_id=rule.category_id,
+            notes=rule.label,
+            source="message",
+            recurring_rule_id=None,
+        )
+    )
+    session.commit()
+    assert missed_recurring_rules(session, "Europe/Berlin", at=at) == []
+
+
+def test_missed_recurring_empty_when_manual_merchant_matches_label_and_amount(session):
+    """Free-text logs usually put the label on the merchant, not notes."""
+    from app.db import Merchant
+
+    rule = _add_rule(
+        session,
+        day_of_month=1,
+        amount_cents=4499,
+        label="Wlan Vodafone",
+        category_name="Utilities",
+    )
+    merchant = Merchant(
+        name="wlan vodafone",
+        display_name="Wlan Vodafone",
+        category_id=rule.category_id,
+    )
+    session.add(merchant)
+    session.flush()
+    at = datetime(2026, 3, 15, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    session.add(
+        Transaction(
+            ts=datetime(2026, 3, 2, 12, 0, tzinfo=ZoneInfo("Europe/Berlin")).astimezone(
+                timezone.utc
+            ),
+            amount_cents=rule.amount_cents,
+            type="EXPENSE",
+            merchant_id=merchant.id,
+            category_id=rule.category_id,
+            notes=None,
+            source="message",
+            recurring_rule_id=None,
+        )
+    )
+    session.commit()
+    assert missed_recurring_rules(session, "Europe/Berlin", at=at) == []
+
+
+def test_missed_recurring_still_lists_when_manual_amount_differs(session):
+    rule = _add_rule(session, day_of_month=1, amount_cents=2999)
+    at = datetime(2026, 3, 15, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    session.add(
+        Transaction(
+            ts=datetime(2026, 3, 2, 12, 0, tzinfo=ZoneInfo("Europe/Berlin")).astimezone(
+                timezone.utc
+            ),
+            amount_cents=rule.amount_cents + 1,
+            type="EXPENSE",
+            category_id=rule.category_id,
+            notes=rule.label,
+            source="message",
+            recurring_rule_id=None,
+        )
+    )
+    session.commit()
+    missed = missed_recurring_rules(session, "Europe/Berlin", at=at)
+    assert len(missed) == 1
+    assert missed[0].id == rule.id
 
 
 def test_missed_recurring_empty_on_rule_day(session):

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.analytics import month_bounds_utc
 from app.categories import CategoryName
-from app.db import Category, RecurringRule, Transaction
+from app.db import Category, Merchant, RecurringRule, Transaction
 
 VALID_TYPES = {"EXPENSE", "INCOME"}
 
@@ -92,6 +92,11 @@ def missed_recurring_rules(
     """Active rules whose day already passed this month with no ledger row.
 
     Notify-only — never inserts. Exact-day fire remains in run_recurring_check.
+
+    A month counts as logged if either:
+    - a transaction has this ``recurring_rule_id``, or
+    - a manual row matches the rule's label + amount (notes or merchant
+      display_name), so free-text catch-up logs silence the alert.
     """
     now_utc = at or datetime.now(timezone.utc)
     now_local = now_utc.astimezone(ZoneInfo(tz_name))
@@ -109,6 +114,19 @@ def missed_recurring_rules(
             )
             .first()
         )
+        if already_logged is None:
+            already_logged = (
+                session.query(Transaction)
+                .outerjoin(Merchant, Transaction.merchant_id == Merchant.id)
+                .filter(
+                    Transaction.amount_cents == rule.amount_cents,
+                    Transaction.ts >= start_utc,
+                    Transaction.ts < end_utc,
+                    (Transaction.notes == rule.label)
+                    | (Merchant.display_name == rule.label),
+                )
+                .first()
+            )
         if already_logged is None:
             missed.append(rule)
     return missed
