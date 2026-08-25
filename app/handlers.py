@@ -23,6 +23,16 @@ from app.backup import backup_status_text
 from app.telegram_io import telegram_send
 from app.categories import CategoryName
 from app.categorize import RecatError, find_matching_merchant, recat_merchant, resolve_category
+from app.cleanup import (
+    CleanupError,
+    CleanupProposal,
+    apply_merge,
+    format_cleanup_prompt,
+    propose_merges,
+    reject_proposal,
+    start_cleanup_session,
+    undo_last_cleanup_session,
+)
 from app.db import Category, Merchant, Transaction, get_sessionmaker
 from app.extractor import ExtractionError, extract_transactions
 from app.ledger import (
@@ -51,6 +61,8 @@ HELP_TEXT = (
     "/undo — remove the last message's transactions\n"
     "/export — CSV of all transactions\n"
     "/recat <merchant> <category> — fix a merchant's category, past and future\n"
+    "/cleanup — review suggested merchant merges\n"
+    "/cleanup_undo — undo the last cleanup session\n"
     "/backup_status — newest local backup and config flags\n"
 )
 
@@ -68,6 +80,8 @@ BOT_COMMANDS = [
     BotCommand("undo", "Remove the last message's transactions"),
     BotCommand("export", "Download CSV of all transactions"),
     BotCommand("recat", "Fix a merchant's category, past and future"),
+    BotCommand("cleanup", "Review suggested merchant merges"),
+    BotCommand("cleanup_undo", "Undo the last cleanup session"),
     BotCommand("backup_status", "Newest local backup and config flags"),
 ]
 
@@ -95,10 +109,22 @@ def _pending_label(pending: PendingConfirmation) -> str:
 
 
 def process_message(
-    session_factory, openai_client: OpenAI, openai_model: str, tz_name: str, text: str, update_id: int
+    session_factory,
+    openai_client: OpenAI,
+    openai_model: str,
+    reasoning_effort: str,
+    tz_name: str,
+    text: str,
+    update_id: int,
 ) -> ProcessResult:
     try:
-        items = extract_transactions(openai_client, openai_model, text, tz_name)
+        items = extract_transactions(
+            openai_client,
+            openai_model,
+            text,
+            tz_name,
+            reasoning_effort=reasoning_effort,
+        )
     except ExtractionError as exc:
         return ProcessResult(reply_text=exc.user_message, pending=[])
 
@@ -298,6 +324,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.bot_data["session_factory"],
         context.bot_data["openai_client"],
         context.bot_data["openai_model"],
+        context.bot_data["openai_reasoning_effort"],
         context.bot_data["timezone"],
         update.message.text,
         update.update_id,
@@ -374,6 +401,106 @@ async def handle_recat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         lambda: update.message.reply_text(reply),
         ledger_written=reply.endswith("updated."),
         context=f"/recat update_id={update.update_id}",
+    )
+
+
+def _start_cleanup(
+    session_factory,
+    openai_client: OpenAI,
+    model: str,
+    reasoning_effort: str,
+) -> tuple[int | None, list[CleanupProposal]]:
+    with session_factory() as session:
+        proposals = propose_merges(
+            openai_client, model, reasoning_effort, session
+        )
+        if not proposals:
+            return None, []
+        cleanup_session = start_cleanup_session(session)
+        return cleanup_session.id, proposals
+
+
+def _cleanup_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "Apply", callback_data=f"pclean:{token}:APPLY"
+                ),
+                InlineKeyboardButton(
+                    "Skip", callback_data=f"pclean:{token}:SKIP"
+                ),
+            ],
+            [InlineKeyboardButton("Done", callback_data=f"pclean:{token}:DONE")],
+        ]
+    )
+
+
+async def handle_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    session_id, proposals = await asyncio.to_thread(
+        _start_cleanup,
+        context.bot_data["session_factory"],
+        context.bot_data["openai_client"],
+        context.bot_data["openai_model_heavy"],
+        context.bot_data["openai_reasoning_effort_heavy"],
+    )
+    if not proposals:
+        await telegram_send(
+            lambda: update.message.reply_text("Nothing to clean up."),
+            context="/cleanup",
+        )
+        return
+
+    token = secrets.token_hex(4)
+    context.bot_data["pending_cleanups"][token] = {
+        "session_id": session_id,
+        "proposals": proposals,
+        "index": 0,
+        "applied": 0,
+        "skipped": 0,
+    }
+    await telegram_send(
+        lambda: update.message.reply_text(
+            format_cleanup_prompt(proposals[0], 0, len(proposals)),
+            reply_markup=_cleanup_keyboard(token),
+        ),
+        context="/cleanup",
+    )
+
+
+def _apply_cleanup_choice(
+    session_factory,
+    session_id: int,
+    proposal: CleanupProposal,
+    choice: str,
+) -> str | None:
+    with session_factory() as session:
+        if choice == "APPLY":
+            return apply_merge(
+                session, session_id, proposal.from_name, proposal.to_name
+            )
+        reject_proposal(session, proposal.from_name, proposal.to_name)
+        return None
+
+
+def _undo_cleanup(session_factory) -> str:
+    with session_factory() as session:
+        return undo_last_cleanup_session(session)
+
+
+async def handle_cleanup_undo(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    try:
+        reply = await asyncio.to_thread(
+            _undo_cleanup, context.bot_data["session_factory"]
+        )
+    except CleanupError as exc:
+        reply = str(exc)
+    await telegram_send(
+        lambda: update.message.reply_text(reply),
+        ledger_written=reply.startswith("Restored"),
+        context="/cleanup_undo",
     )
 
 
@@ -543,6 +670,81 @@ async def handle_edit_category_confirmation(
     )
 
 
+async def handle_cleanup_confirmation(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    if query.from_user.id != context.bot_data["settings"].allowed_telegram_user_id:
+        return
+    await telegram_send(lambda: query.answer())
+    _, token, choice = query.data.split(":", 2)
+    pending = context.bot_data["pending_cleanups"].get(token)
+    if pending is None:
+        await telegram_send(
+            lambda: query.edit_message_text(
+                "This cleanup expired — run /cleanup again."
+            )
+        )
+        return
+
+    if choice == "DONE":
+        context.bot_data["pending_cleanups"].pop(token, None)
+        await telegram_send(
+            lambda: query.edit_message_text(
+                f"Cleanup done: {pending['applied']} applied, "
+                f"{pending['skipped']} skipped."
+            )
+        )
+        return
+    if choice not in {"APPLY", "SKIP"}:
+        await telegram_send(lambda: query.edit_message_text("Unknown choice."))
+        return
+
+    proposal = pending["proposals"][pending["index"]]
+    try:
+        merge_line = await asyncio.to_thread(
+            _apply_cleanup_choice,
+            context.bot_data["session_factory"],
+            pending["session_id"],
+            proposal,
+            choice,
+        )
+    except CleanupError as exc:
+        await telegram_send(lambda: query.edit_message_text(str(exc)))
+        return
+
+    counter = "applied" if choice == "APPLY" else "skipped"
+    pending[counter] += 1
+    pending["index"] += 1
+    if pending["index"] >= len(pending["proposals"]):
+        context.bot_data["pending_cleanups"].pop(token, None)
+        summary = (
+            f"Cleanup done: {pending['applied']} applied, "
+            f"{pending['skipped']} skipped."
+        )
+        text = f"{merge_line}\n{summary}" if merge_line else summary
+        await telegram_send(
+            lambda: query.edit_message_text(text),
+            ledger_written=choice == "APPLY",
+            context=f"/cleanup choice={choice}",
+        )
+        return
+
+    next_prompt = format_cleanup_prompt(
+        pending["proposals"][pending["index"]],
+        pending["index"],
+        len(pending["proposals"]),
+    )
+    text = f"{merge_line}\n\n{next_prompt}" if merge_line else next_prompt
+    await telegram_send(
+        lambda: query.edit_message_text(
+            text, reply_markup=_cleanup_keyboard(token)
+        ),
+        ledger_written=choice == "APPLY",
+        context=f"/cleanup choice={choice}",
+    )
+
+
 async def register_bot_commands(application: Application) -> None:
     await application.bot.set_my_commands(BOT_COMMANDS)
 
@@ -563,6 +765,10 @@ def register_handlers(application: Application, allowed_user_id: int) -> None:
     application.add_handler(CommandHandler("undo", handle_undo, filters=user_filter))
     application.add_handler(CommandHandler("export", handle_export, filters=user_filter))
     application.add_handler(CommandHandler("recat", handle_recat, filters=user_filter))
+    application.add_handler(CommandHandler("cleanup", handle_cleanup, filters=user_filter))
+    application.add_handler(
+        CommandHandler("cleanup_undo", handle_cleanup_undo, filters=user_filter)
+    )
     application.add_handler(CommandHandler("recent", handle_recent, filters=user_filter))
     application.add_handler(CommandHandler("delete", handle_delete, filters=user_filter))
     application.add_handler(CommandHandler("edit", handle_edit, filters=user_filter))
@@ -572,4 +778,7 @@ def register_handlers(application: Application, allowed_user_id: int) -> None:
     application.add_handler(CallbackQueryHandler(handle_category_confirmation, pattern=r"^pconf:"))
     application.add_handler(
         CallbackQueryHandler(handle_edit_category_confirmation, pattern=r"^pedit:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(handle_cleanup_confirmation, pattern=r"^pclean:")
     )

@@ -9,13 +9,25 @@ import pytest
 from app.analytics import monthly_summary
 from app.categories import CategoryName
 from app.categorize import resolve_category
-from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
+from app.db import (
+    Category,
+    CleanupRejection,
+    Merchant,
+    Transaction,
+    get_sessionmaker,
+    init_db,
+    make_engine,
+)
 from app.extractor import ExtractionResult, TransactionItem
 from app.handlers import (
+    BOT_COMMANDS,
     PendingConfirmation,
     confirm_category,
     export_csv,
     handle_category_confirmation,
+    handle_cleanup,
+    handle_cleanup_confirmation,
+    handle_cleanup_undo,
     process_message,
     recat_text,
     summary_text,
@@ -53,7 +65,7 @@ def _item(**overrides) -> TransactionItem:
 def test_process_message_logs_and_replies(session_factory):
     client = _stub_client(_item())
     result = process_message(
-        session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe", update_id=42
+        session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin", "30€ Rewe", update_id=42
     )
 
     assert "Logged 1" in result.reply_text
@@ -68,7 +80,7 @@ def test_process_message_logs_and_replies(session_factory):
 def test_process_message_rejection_logs_nothing(session_factory):
     client = _stub_client(_item(currency="USD"))
     result = process_message(
-        session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30 USD Rewe", update_id=1
+        session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin", "30 USD Rewe", update_id=1
     )
 
     assert "EUR" in result.reply_text
@@ -82,7 +94,7 @@ def test_process_message_multi_item_rejection_logs_nothing(session_factory):
     # cover — the valid item must not get logged just because it came first.
     client = _stub_client(_item(), _item(currency="USD", merchant="Shell"))
     result = process_message(
-        session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe and 15 USD Shell", update_id=1
+        session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin", "30€ Rewe and 15 USD Shell", update_id=1
     )
 
     assert "EUR" in result.reply_text
@@ -93,7 +105,7 @@ def test_process_message_multi_item_rejection_logs_nothing(session_factory):
 def test_process_message_holds_uncertain_new_merchant(session_factory):
     client = _stub_client(_item(merchant="Obscure Shop LLC", category_confident=False))
     result = process_message(
-        session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ at that place", update_id=1
+        session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin", "30€ at that place", update_id=1
     )
 
     assert result.reply_text is None
@@ -113,7 +125,7 @@ def test_process_message_mixed_confident_and_uncertain(session_factory):
         _item(merchant="Obscure Shop LLC", category_confident=False, amount=15.0),
     )
     result = process_message(
-        session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe and 15€ somewhere", update_id=1
+        session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin", "30€ Rewe and 15€ somewhere", update_id=1
     )
 
     assert "Logged 1" in result.reply_text
@@ -126,13 +138,13 @@ def test_process_message_mixed_confident_and_uncertain(session_factory):
 
 def test_process_message_known_merchant_ignores_low_confidence(session_factory):
     client = _stub_client(_item(merchant="Rewe", category_confident=True))
-    process_message(session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe", update_id=1)
+    process_message(session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin", "30€ Rewe", update_id=1)
 
     client2 = _stub_client(
         _item(merchant="Rewe", category_confident=False, category=CategoryName.DINING)
     )
     result = process_message(
-        session_factory, client2, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe again", update_id=2
+        session_factory, client2, "gpt-4o-mini", "none", "Europe/Berlin", "30€ Rewe again", update_id=2
     )
 
     assert result.reply_text is not None
@@ -181,7 +193,7 @@ def test_summary_text_bad_format(session_factory):
 
 def test_export_csv_contains_logged_transaction(session_factory):
     client = _stub_client(_item())
-    process_message(session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe", update_id=1)
+    process_message(session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin", "30€ Rewe", update_id=1)
 
     buffer = export_csv(session_factory)
     rows = list(csv.reader(io.TextIOWrapper(buffer, encoding="utf-8")))
@@ -193,7 +205,7 @@ def test_export_csv_contains_logged_transaction(session_factory):
 
 def test_recat_text_updates_and_reports_count(session_factory):
     client = _stub_client(_item())
-    process_message(session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe", update_id=1)
+    process_message(session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin", "30€ Rewe", update_id=1)
 
     reply = recat_text(session_factory, "Rewe", "Dining")
 
@@ -375,6 +387,8 @@ async def test_register_bot_commands_sets_telegram_menu():
         "undo",
         "export",
         "recat",
+        "cleanup",
+        "cleanup_undo",
         "backup_status",
     }
 
@@ -382,7 +396,7 @@ async def test_register_bot_commands_sets_telegram_menu():
 def test_process_message_backdated_item_lands_in_correct_month(session_factory):
     client = _stub_client(_item(local_date=date(2026, 7, 15)))
     result = process_message(
-        session_factory, client, "gpt-4o-mini", "Europe/Berlin",
+        session_factory, client, "gpt-4o-mini", "none", "Europe/Berlin",
         "on July 15 I spent 30 at Rewe", update_id=1,
     )
     assert "2026-07-15" in result.reply_text
@@ -396,3 +410,135 @@ def test_process_message_backdated_item_lands_in_correct_month(session_factory):
     with session_factory() as session:
         assert monthly_summary(session, "Europe/Berlin", at=july)["expense_cents"] == 3000
         assert monthly_summary(session, "Europe/Berlin", at=august)["expense_cents"] == 0
+
+
+def test_bot_commands_include_cleanup():
+    names = {command.command for command in BOT_COMMANDS}
+
+    assert "cleanup" in names
+    assert "cleanup_undo" in names
+
+
+def test_process_message_passes_reasoning_effort(session_factory):
+    client = _stub_client(_item())
+
+    process_message(
+        session_factory,
+        client,
+        "gpt-4o-mini",
+        "low",
+        "Europe/Berlin",
+        "30€ Rewe",
+        update_id=42,
+    )
+
+    assert client.chat.completions.parse.call_args.kwargs["reasoning_effort"] == "low"
+
+
+def _cleanup_context(session_factory, pending=None, allowed_user_id=12345):
+    return SimpleNamespace(
+        bot_data={
+            "session_factory": session_factory,
+            "openai_client": object(),
+            "openai_model_heavy": "gpt-5.6-terra",
+            "openai_reasoning_effort_heavy": "medium",
+            "pending_cleanups": pending if pending is not None else {},
+            "settings": SimpleNamespace(allowed_telegram_user_id=allowed_user_id),
+        }
+    )
+
+
+async def test_handle_cleanup_reports_nothing_when_no_proposals(
+    session_factory, monkeypatch
+):
+    from app import handlers
+
+    monkeypatch.setattr(handlers, "propose_merges", lambda *args: [])
+    message = SimpleNamespace(reply_text=AsyncMock())
+    update = SimpleNamespace(message=message, update_id=101)
+
+    await handle_cleanup(update, _cleanup_context(session_factory))
+
+    message.reply_text.assert_awaited_once_with("Nothing to clean up.")
+
+
+async def test_handle_cleanup_stores_session_and_prompts_first_proposal(
+    session_factory, monkeypatch
+):
+    from app import handlers
+    from app.cleanup import CleanupProposal
+
+    proposals = [CleanupProposal("Rewe City", "Rewe", "Same chain")]
+    monkeypatch.setattr(handlers, "propose_merges", lambda *args: proposals)
+    message = SimpleNamespace(reply_text=AsyncMock())
+    update = SimpleNamespace(message=message, update_id=102)
+    context = _cleanup_context(session_factory)
+
+    await handle_cleanup(update, context)
+
+    assert len(context.bot_data["pending_cleanups"]) == 1
+    pending = next(iter(context.bot_data["pending_cleanups"].values()))
+    assert pending["proposals"] == proposals
+    assert pending["index"] == 0
+    assert pending["applied"] == 0
+    assert pending["skipped"] == 0
+    assert "1/1" in message.reply_text.call_args.args[0]
+    assert message.reply_text.call_args.kwargs["reply_markup"] is not None
+
+
+async def test_cleanup_done_does_not_reject_remaining_proposals(session_factory):
+    from app.cleanup import CleanupProposal
+
+    proposal = CleanupProposal("Rewe City", "Rewe", "Same chain")
+    pending = {
+        "token123": {
+            "session_id": 1,
+            "proposals": [proposal],
+            "index": 0,
+            "applied": 0,
+            "skipped": 0,
+        }
+    }
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=12345),
+        data="pclean:token123:DONE",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(callback_query=query, update_id=103)
+    context = _cleanup_context(session_factory, pending)
+
+    await handle_cleanup_confirmation(update, context)
+
+    assert "Cleanup done: 0 applied, 0 skipped." in query.edit_message_text.call_args.args[0]
+    assert "token123" not in pending
+    with session_factory() as session:
+        assert session.query(CleanupRejection).count() == 0
+
+
+async def test_cleanup_callback_checks_user_before_answering(session_factory):
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=999),
+        data="pclean:token123:DONE",
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    update = SimpleNamespace(callback_query=query, update_id=104)
+    pending = {"token123": object()}
+
+    await handle_cleanup_confirmation(
+        update, _cleanup_context(session_factory, pending)
+    )
+
+    query.answer.assert_not_awaited()
+    query.edit_message_text.assert_not_awaited()
+    assert "token123" in pending
+
+
+async def test_handle_cleanup_undo_surfaces_cleanup_error(session_factory):
+    message = SimpleNamespace(reply_text=AsyncMock())
+    update = SimpleNamespace(message=message, update_id=105)
+
+    await handle_cleanup_undo(update, _cleanup_context(session_factory))
+
+    assert message.reply_text.call_args.args[0] == "There is no cleanup session to undo."

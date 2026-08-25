@@ -38,9 +38,13 @@ def test_build_application_wires_bot_data_and_jobs(settings, tmp_path):
 
     assert application.bot_data["timezone"] == "Europe/Berlin"
     assert application.bot_data["openai_model"] == "gpt-5.6-luna"
+    assert application.bot_data["openai_reasoning_effort"] == "none"
+    assert application.bot_data["openai_model_heavy"] == "gpt-5.6-terra"
+    assert application.bot_data["openai_reasoning_effort_heavy"] == "medium"
     assert "session_factory" in application.bot_data
     assert application.bot_data["pending_confirmations"] == {}
     assert application.bot_data["pending_edits"] == {}
+    assert application.bot_data["pending_cleanups"] == {}
     assert application.post_init is register_bot_commands
 
     job_names = {job.name for job in application.job_queue.jobs()}
@@ -76,6 +80,8 @@ async def test_register_bot_commands_includes_recent_delete_edit():
         "undo",
         "export",
         "recat",
+        "cleanup",
+        "cleanup_undo",
         "backup_status",
     } <= names
 

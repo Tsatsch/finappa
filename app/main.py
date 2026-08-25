@@ -146,10 +146,16 @@ def build_application(settings: Settings, recurring_yaml_path: str = "recurring.
     application.bot_data["session_factory"] = session_factory
     application.bot_data["openai_client"] = OpenAI(api_key=settings.openai_api_key, timeout=30.0)
     application.bot_data["openai_model"] = settings.openai_model
+    application.bot_data["openai_reasoning_effort"] = settings.openai_reasoning_effort
+    application.bot_data["openai_model_heavy"] = settings.openai_model_heavy
+    application.bot_data["openai_reasoning_effort_heavy"] = (
+        settings.openai_reasoning_effort_heavy
+    )
     application.bot_data["timezone"] = settings.timezone
     application.bot_data["settings"] = settings
     application.bot_data["pending_confirmations"] = {}
     application.bot_data["pending_edits"] = {}
+    application.bot_data["pending_cleanups"] = {}
 
     register_handlers(application, settings.allowed_telegram_user_id)
     application.add_error_handler(error_handler)

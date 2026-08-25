@@ -9,6 +9,7 @@ from app.cleanup import (
     CleanupProposal,
     apply_merge,
     filter_proposals,
+    format_cleanup_prompt,
     reject_proposal,
     start_cleanup_session,
     undo_last_cleanup_session,
@@ -189,3 +190,14 @@ def test_undo_restores_absorbed_merchant_and_txs(session):
 def test_undo_when_nothing_raises(session):
     with pytest.raises(CleanupError):
         undo_last_cleanup_session(session)
+
+
+def test_format_cleanup_prompt():
+    text = format_cleanup_prompt(
+        CleanupProposal("Rewe City", "Rewe", "Same chain variant"), 0, 3
+    )
+
+    assert "1/3" in text
+    assert "Rewe City" in text
+    assert "Rewe" in text
+    assert "Same chain variant" in text

@@ -30,6 +30,16 @@ class CleanupProposal:
     reason: str
 
 
+def format_cleanup_prompt(
+    proposal: CleanupProposal, index: int, total: int
+) -> str:
+    return (
+        f"Cleanup {index + 1}/{total}\n"
+        f"{proposal.from_name} → {proposal.to_name}\n"
+        f"{proposal.reason}"
+    )
+
+
 class CleanupProposeItem(BaseModel):
     from_name: str
     to_name: str
