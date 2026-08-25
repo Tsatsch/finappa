@@ -88,6 +88,42 @@ def test_extract_transactions_returns_items_on_success():
     assert items[0].merchant == "Rewe"
 
 
+def test_extract_transactions_passes_reasoning_effort():
+    client = MagicMock()
+    completion = MagicMock()
+    completion.choices = [MagicMock(message=MagicMock(parsed=_result(_item())))]
+    client.chat.completions.parse.return_value = completion
+
+    extract_transactions(
+        client,
+        "gpt-5.6-luna",
+        "30€ Rewe",
+        reasoning_effort="low",
+    )
+
+    assert client.chat.completions.parse.call_args.kwargs["reasoning_effort"] == "low"
+
+
+def test_extract_transactions_retries_without_unsupported_reasoning_effort():
+    client = MagicMock()
+    completion = MagicMock()
+    completion.choices = [MagicMock(message=MagicMock(parsed=_result(_item())))]
+    client.chat.completions.parse.side_effect = [TypeError("unsupported"), completion]
+
+    items = extract_transactions(
+        client,
+        "gpt-4o-mini",
+        "30€ Rewe",
+        reasoning_effort="low",
+    )
+
+    assert items[0].merchant == "Rewe"
+    first_kwargs = client.chat.completions.parse.call_args_list[0].kwargs
+    second_kwargs = client.chat.completions.parse.call_args_list[1].kwargs
+    assert first_kwargs["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in second_kwargs
+
+
 def test_extract_transactions_wraps_refusal_response():
     """When OpenAI returns a refusal (parsed=None), extract_transactions should wrap
     the resulting validation error as ExtractionError, not let AttributeError escape."""

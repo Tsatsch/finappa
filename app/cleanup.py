@@ -2,11 +2,14 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from openai import OpenAI
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.categorize import normalize_merchant_name
 from app.db import (
+    Category,
     CleanupRejection,
     CleanupSession,
     CleanupSessionMerge,
@@ -25,6 +28,93 @@ class CleanupProposal:
     from_name: str
     to_name: str
     reason: str
+
+
+class CleanupProposeItem(BaseModel):
+    from_name: str
+    to_name: str
+    reason: str
+
+
+class CleanupProposeResult(BaseModel):
+    proposals: list[CleanupProposeItem]
+
+
+CLEANUP_SYSTEM_PROMPT = (
+    "Identify merchant names that are aliases or variants of the same merchant or "
+    "brand. Never merge peer chains or competitors (for example, Rewe and Edeka). "
+    "Only suggest pairs from the provided merchant list."
+)
+
+
+def _cleanup_parse(
+    client: OpenAI,
+    model: str,
+    reasoning_effort: str,
+    messages: list[dict[str, str]],
+    response_format: type[BaseModel],
+):
+    parse = getattr(client.chat.completions, "parse", None)
+    if parse is None:  # pragma: no cover - depends on installed openai-python version
+        parse = client.beta.chat.completions.parse
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "response_format": response_format,
+        "reasoning_effort": reasoning_effort,
+    }
+    try:
+        return parse(**kwargs)
+    except TypeError:
+        kwargs.pop("reasoning_effort")
+        return parse(**kwargs)
+
+
+def propose_merges(
+    client: OpenAI,
+    model: str,
+    reasoning_effort: str,
+    session: Session,
+    *,
+    max_proposals: int = 20,
+) -> list[CleanupProposal]:
+    merchants = (
+        session.query(
+            Merchant.display_name,
+            Merchant.name,
+            Category.name,
+            func.count(Transaction.id),
+        )
+        .join(Category, Merchant.category_id == Category.id)
+        .outerjoin(Transaction, Transaction.merchant_id == Merchant.id)
+        .group_by(Merchant.id, Category.name)
+        .all()
+    )
+    payload = [
+        {
+            "display_name": display_name,
+            "normalized_name": normalized_name,
+            "category": category_name,
+            "transaction_count": transaction_count,
+        }
+        for display_name, normalized_name, category_name, transaction_count in merchants
+    ]
+    completion = _cleanup_parse(
+        client=client,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        messages=[
+            {"role": "system", "content": CLEANUP_SYSTEM_PROMPT},
+            {"role": "user", "content": json.dumps(payload)},
+        ],
+        response_format=CleanupProposeResult,
+    )
+    parsed = completion.choices[0].message.parsed
+    proposals = [
+        CleanupProposal(item.from_name, item.to_name, item.reason)
+        for item in parsed.proposals
+    ]
+    return filter_proposals(session, proposals)[:max_proposals]
 
 
 def rejection_pair(a: str, b: str) -> tuple[str, str]:

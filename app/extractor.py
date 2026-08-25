@@ -54,7 +54,12 @@ SYSTEM_PROMPT = (
 )
 
 
-def _client_parse(client: OpenAI, model: str, text: str) -> ExtractionResult:
+def _client_parse(
+    client: OpenAI,
+    model: str,
+    text: str,
+    reasoning_effort: str | None = None,
+) -> ExtractionResult:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": text},
@@ -62,7 +67,14 @@ def _client_parse(client: OpenAI, model: str, text: str) -> ExtractionResult:
     parse = getattr(client.chat.completions, "parse", None)
     if parse is None:  # pragma: no cover - depends on installed openai-python version
         parse = client.beta.chat.completions.parse
-    completion = parse(model=model, messages=messages, response_format=ExtractionResult)
+    kwargs = dict(model=model, messages=messages, response_format=ExtractionResult)
+    if reasoning_effort is not None:
+        kwargs["reasoning_effort"] = reasoning_effort
+    try:
+        completion = parse(**kwargs)
+    except TypeError:
+        kwargs.pop("reasoning_effort", None)
+        completion = parse(**kwargs)
     return completion.choices[0].message.parsed
 
 
@@ -104,10 +116,19 @@ def validate_extraction(result: ExtractionResult, tz_name: str = "Europe/Berlin"
 
 
 def extract_transactions(
-    client: OpenAI, model: str, text: str, tz_name: str = "Europe/Berlin"
+    client: OpenAI,
+    model: str,
+    text: str,
+    tz_name: str = "Europe/Berlin",
+    reasoning_effort: str | None = None,
 ) -> list[TransactionItem]:
     try:
-        result = _client_parse(client, model, text)
+        result = _client_parse(
+            client,
+            model,
+            text,
+            reasoning_effort=reasoning_effort,
+        )
         return validate_extraction(result, tz_name)
     except ExtractionError:
         raise

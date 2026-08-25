@@ -53,6 +53,49 @@ def _two_rewe_variants(session):
     return rewe, city, groceries
 
 
+class _FakeCompletion:
+    def __init__(self, parsed):
+        message = type("Message", (), {"parsed": parsed})()
+        self.choices = [type("Choice", (), {"message": message})()]
+
+
+def test_propose_merges_filters_model_output(session, monkeypatch):
+    resolve_category(session, "Rewe", CategoryName.GROCERIES)
+    resolve_category(session, "Rewe City", CategoryName.GROCERIES)
+    resolve_category(session, "Cafe", CategoryName.DINING)
+    session.commit()
+
+    from app import cleanup as cleanup_mod
+
+    def fake_parse(**kwargs):
+        assert kwargs["model"] == "gpt-5.6-terra"
+        assert kwargs["reasoning_effort"] == "medium"
+        parsed = cleanup_mod.CleanupProposeResult(
+            proposals=[
+                cleanup_mod.CleanupProposeItem(
+                    from_name="Rewe City", to_name="Rewe", reason="variant"
+                ),
+                cleanup_mod.CleanupProposeItem(
+                    from_name="Cafe", to_name="Rewe", reason="bad"
+                ),
+            ]
+        )
+        return _FakeCompletion(parsed)
+
+    monkeypatch.setattr(cleanup_mod, "_cleanup_parse", fake_parse)
+
+    proposals = cleanup_mod.propose_merges(
+        type("Client", (), {})(),
+        "gpt-5.6-terra",
+        "medium",
+        session,
+        max_proposals=20,
+    )
+
+    assert len(proposals) == 1
+    assert proposals[0].from_name == "Rewe City"
+
+
 def test_filter_drops_cross_category(session):
     resolve_category(session, "Rewe", CategoryName.GROCERIES)
     resolve_category(session, "Cafe", CategoryName.DINING)
