@@ -1,7 +1,7 @@
 # Merchant Aliases & `/cleanup` — Design
 
 Date: 2026-08-25
-Status: Draft (awaiting user review)
+Status: Approved
 Amends: [2026-08-10-telegram-finance-tracker-design.md](2026-08-10-telegram-finance-tracker-design.md)
 
 ## 1. Overview
