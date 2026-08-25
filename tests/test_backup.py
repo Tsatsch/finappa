@@ -1,9 +1,17 @@
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from cryptography.fernet import Fernet
 
-from app.backup import create_snapshot, decrypt_file, encrypt_file, prune_snapshots
+from app.backup import (
+    backup_status_text,
+    create_snapshot,
+    decrypt_file,
+    encrypt_file,
+    is_backup_stale,
+    prune_snapshots,
+    stale_backup_message,
+)
 from app.db import init_db, make_engine
 
 
@@ -55,3 +63,42 @@ def test_prune_snapshots_keeps_newest_n(tmp_path):
     assert len(remaining) == 7
     assert len(deleted) == 3
     assert remaining == [f"backup-2026-03-{d:02d}.db" for d in range(4, 11)]
+
+
+def test_is_backup_stale_false_when_age_is_two_days(tmp_path):
+    (tmp_path / "backup-2026-08-23.db").write_text("x")
+    assert is_backup_stale(str(tmp_path), today=date(2026, 8, 25)) is False
+
+
+def test_is_backup_stale_true_when_age_is_three_days(tmp_path):
+    (tmp_path / "backup-2026-08-22.db").write_text("x")
+    assert is_backup_stale(str(tmp_path), today=date(2026, 8, 25)) is True
+
+
+def test_is_backup_stale_true_when_no_snapshots(tmp_path):
+    assert is_backup_stale(str(tmp_path), today=date(2026, 8, 25)) is True
+
+
+def test_stale_backup_message_none_when_fresh(tmp_path):
+    (tmp_path / "backup-2026-08-24.db").write_text("x")
+    assert stale_backup_message(str(tmp_path), today=date(2026, 8, 25)) is None
+
+
+def test_stale_backup_message_when_missing(tmp_path):
+    msg = stale_backup_message(str(tmp_path), today=date(2026, 8, 25))
+    assert msg == "Backup overdue: no local snapshots found."
+
+
+def test_backup_status_text_reports_ok_and_flags(tmp_path):
+    (tmp_path / "backup-2026-08-24.db").write_text("x")
+    text = backup_status_text(
+        str(tmp_path),
+        channel_configured=True,
+        key_configured=True,
+        today=date(2026, 8, 25),
+    )
+    assert "Backup status: OK" in text
+    assert "2026-08-24" in text
+    assert "1 day old" in text
+    assert "Channel configured: yes" in text
+    assert "Encryption key configured: yes" in text

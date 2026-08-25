@@ -1,6 +1,7 @@
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet
 
@@ -36,3 +37,84 @@ def prune_snapshots(snapshot_dir: str, keep: int = 7) -> list[Path]:
     for path in to_delete:
         path.unlink()
     return to_delete
+
+
+def newest_snapshot(snapshot_dir: str) -> tuple[Path, date] | None:
+    best: tuple[Path, date] | None = None
+    for path in Path(snapshot_dir).glob("backup-*.db"):
+        try:
+            d = date.fromisoformat(path.stem.removeprefix("backup-"))
+        except ValueError:
+            continue
+        if best is None or d > best[1]:
+            best = (path, d)
+    return best
+
+
+def backup_age_days(snapshot_date: date, today: date) -> int:
+    return (today - snapshot_date).days
+
+
+def is_backup_stale(
+    snapshot_dir: str,
+    today: date | None = None,
+    tz_name: str = "Europe/Berlin",
+) -> bool:
+    if today is None:
+        today = datetime.now(ZoneInfo(tz_name)).date()
+    newest = newest_snapshot(snapshot_dir)
+    if newest is None:
+        return True
+    return backup_age_days(newest[1], today) > 2
+
+
+def stale_backup_message(
+    snapshot_dir: str,
+    today: date | None = None,
+    tz_name: str = "Europe/Berlin",
+) -> str | None:
+    if today is None:
+        today = datetime.now(ZoneInfo(tz_name)).date()
+    newest = newest_snapshot(snapshot_dir)
+    if newest is None:
+        return "Backup overdue: no local snapshots found."
+    _, snapshot_date = newest
+    age = backup_age_days(snapshot_date, today)
+    if age <= 2:
+        return None
+    return (
+        f"Backup overdue: newest local snapshot is {snapshot_date.isoformat()} "
+        f"({age} days old)."
+    )
+
+
+def backup_status_text(
+    snapshot_dir: str,
+    *,
+    channel_configured: bool,
+    key_configured: bool,
+    today: date | None = None,
+    tz_name: str = "Europe/Berlin",
+) -> str:
+    if today is None:
+        today = datetime.now(ZoneInfo(tz_name)).date()
+    newest = newest_snapshot(snapshot_dir)
+    channel = "yes" if channel_configured else "no"
+    key = "yes" if key_configured else "no"
+    if newest is None:
+        return (
+            "Backup status: overdue\n"
+            "Newest snapshot: none\n"
+            f"Channel configured: {channel}\n"
+            f"Encryption key configured: {key}"
+        )
+    _, snapshot_date = newest
+    age = backup_age_days(snapshot_date, today)
+    state = "OK" if age <= 2 else "overdue"
+    day_label = "day" if age == 1 else "days"
+    return (
+        f"Backup status: {state}\n"
+        f"Newest snapshot: {snapshot_date.isoformat()} ({age} {day_label} old)\n"
+        f"Channel configured: {channel}\n"
+        f"Encryption key configured: {key}"
+    )
