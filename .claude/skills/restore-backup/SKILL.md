@@ -51,3 +51,23 @@ on it again."
    docker compose up -d
    ```
 6. Verify from Telegram: `/summary` should reflect the restored data's month.
+
+## Quarterly verify (without restoring)
+
+Once a quarter, prove a backup is still decryptable **without** swapping the live
+DB. Pick a recent `.enc` from the backup channel (or a local `backup-*.db`):
+
+1. Decrypt into a throwaway path (e.g. `data/verify.db`) using the same
+   `decrypt_file` steps as above.
+2. Run:
+   ```bash
+   sqlite3 ./data/verify.db "PRAGMA integrity_check;"
+   sqlite3 ./data/verify.db "SELECT COUNT(*) FROM transactions;"
+   ```
+3. Confirm `integrity_check` prints `ok` and the row count looks sane.
+4. Delete `data/verify.db` — do **not** copy it over `finappa.db` unless you are
+   actually restoring.
+
+Day-to-day health: `/backup_status` in Telegram shows the newest local snapshot
+age and whether channel/key are configured.
+

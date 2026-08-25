@@ -43,7 +43,14 @@ def test_build_application_wires_bot_data_and_jobs(settings, tmp_path):
     assert application.post_init is register_bot_commands
 
     job_names = {job.name for job in application.job_queue.jobs()}
-    assert {"recurring_check", "recurring_check_startup", "daily_backup"} <= job_names
+    assert {
+        "recurring_check",
+        "recurring_check_startup",
+        "missed_recurring_startup",
+        "daily_backup",
+        "backup_health",
+        "backup_health_startup",
+    } <= job_names
 
 
 async def test_register_bot_commands_includes_recent_delete_edit():
@@ -62,11 +69,13 @@ async def test_register_bot_commands_includes_recent_delete_edit():
         "help",
         "summary",
         "recent",
+        "find",
         "delete",
         "edit",
         "undo",
         "export",
         "recat",
+        "backup_status",
     } <= names
 
 
@@ -76,13 +85,20 @@ def test_scheduled_jobs_have_unlimited_misfire_grace_time(settings, tmp_path):
     # (normal — connecting to Telegram, etc.) causes the job to be silently
     # skipped entirely rather than run late. Observed in production: a
     # recurring_check_startup run missed by 2.54s and never executed, so
-    # rent never got logged. All three jobs are idempotent and safe to run
+    # rent never got logged. All jobs here are idempotent and safe to run
     # whenever the process next gets to them, so none should have a grace
     # time that can cause a silent skip.
     application = build_application(settings, recurring_yaml_path=str(tmp_path / "missing.yml"))
 
     jobs_by_name = {job.name: job for job in application.job_queue.jobs()}
-    for name in ("recurring_check", "recurring_check_startup", "daily_backup"):
+    for name in (
+        "recurring_check",
+        "recurring_check_startup",
+        "missed_recurring_startup",
+        "daily_backup",
+        "backup_health",
+        "backup_health_startup",
+    ):
         # getattr with a sentinel: APScheduler only resolves the
         # misfire_grace_time default when its scheduler actually starts, not
         # at add_job() time, so an unfixed job has no such attribute at all

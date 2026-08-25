@@ -75,7 +75,7 @@ Backup overdue: no local snapshots found.
 The existing 03:30 backup job already DMs on exception; this covers “job never
 ran” (host down, process stuck, etc.).
 
-### 4.4 `/backup-status`
+### 4.4 `/backup_status`
 
 Reply includes:
 
@@ -84,6 +84,9 @@ Reply includes:
 - OK vs overdue per the stale rule
 - Whether `BACKUP_CHANNEL_ID` is set (yes/no)
 - Whether `BACKUP_ENCRYPTION_KEY` is configured (yes/no) — never print the key
+
+Telegram Bot API command names cannot contain hyphens, so the command is
+`/backup_status` (underscore), not `/backup-status`.
 
 Register in `register_handlers`, `HELP_TEXT`, and `BOT_COMMANDS`.
 

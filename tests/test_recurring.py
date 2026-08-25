@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.db import Category, RecurringRule, Transaction, get_sessionmaker, init_db, make_engine
-from app.recurring import load_recurring_rules, run_recurring_check
+from app.recurring import load_recurring_rules, missed_recurring_rules, run_recurring_check
 
 
 @pytest.fixture
@@ -62,6 +62,30 @@ def test_day_already_passed_does_not_fire(session):
 
     assert fired == []
     assert session.query(Transaction).filter_by(source="recurring").count() == 0
+
+
+def test_missed_recurring_lists_past_day_without_row(session):
+    _add_rule(session, day_of_month=1)
+    at = datetime(2026, 3, 15, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    missed = missed_recurring_rules(session, "Europe/Berlin", at=at)
+    assert len(missed) == 1
+    assert missed[0].label == "Rent"
+    assert session.query(Transaction).count() == 0
+
+
+def test_missed_recurring_empty_when_already_logged(session):
+    _add_rule(session, day_of_month=1)
+    run_recurring_check(
+        session, "Europe/Berlin", at=datetime(2026, 3, 1, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    )
+    at = datetime(2026, 3, 15, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    assert missed_recurring_rules(session, "Europe/Berlin", at=at) == []
+
+
+def test_missed_recurring_empty_on_rule_day(session):
+    _add_rule(session, day_of_month=15)
+    at = datetime(2026, 3, 15, 6, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    assert missed_recurring_rules(session, "Europe/Berlin", at=at) == []
 
 
 def test_inactive_rule_never_fires(session):

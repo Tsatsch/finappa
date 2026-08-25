@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.analytics import format_cents
 from app.categories import CategoryName
@@ -13,6 +13,8 @@ from app.extractor import MAX_AMOUNT
 EDIT_USAGE = "Usage: /edit <id> amount <eur> | category <name> | date <YYYY-MM-DD>"
 RECENT_MAX = 50
 RECENT_DEFAULT = 10
+FIND_USAGE = "Usage: /find <query>"
+FIND_MAX = 20
 
 
 def local_date_for_ts(ts: datetime, tz_name: str) -> date:
@@ -71,6 +73,30 @@ def recent_text(session_factory, tz_name: str, limit: int = RECENT_DEFAULT) -> s
         )
         if not rows:
             return "No transactions yet."
+        return "\n".join(format_transaction_line(session, tx, tz_name) for tx in rows)
+
+
+def find_text(session_factory, tz_name: str, query: str) -> str:
+    q = query.strip()
+    if not q:
+        return FIND_USAGE
+    pattern = f"%{q}%"
+    with session_factory() as session:
+        rows = (
+            session.query(Transaction)
+            .outerjoin(Merchant, Transaction.merchant_id == Merchant.id)
+            .filter(
+                or_(
+                    Merchant.display_name.ilike(pattern),
+                    Transaction.notes.ilike(pattern),
+                )
+            )
+            .order_by(Transaction.id.desc())
+            .limit(FIND_MAX)
+            .all()
+        )
+        if not rows:
+            return f"No matches for '{q}'."
         return "\n".join(format_transaction_line(session, tx, tz_name) for tx in rows)
 
 

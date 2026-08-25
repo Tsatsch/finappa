@@ -6,7 +6,7 @@ from app.analytics import monthly_summary
 from app.categories import CategoryName
 from app.db import Category, Merchant, Transaction, get_sessionmaker, init_db, make_engine
 from app.extractor import ExtractionError, ExtractionResult, TransactionItem, validate_extraction
-from app.ledger import delete_text, edit_text, recent_text
+from app.ledger import FIND_MAX, FIND_USAGE, delete_text, edit_text, find_text, recent_text
 
 
 @pytest.fixture
@@ -16,22 +16,38 @@ def session_factory(tmp_path):
     return get_sessionmaker(engine)
 
 
-def _add_expense(session_factory, *, amount_cents=3000, source="message", ts=None, merchant_key="rewe"):
+def _add_expense(
+    session_factory,
+    *,
+    amount_cents=3000,
+    source="message",
+    ts=None,
+    merchant_key="rewe",
+    notes=None,
+    with_merchant=True,
+):
     ts = ts or datetime.now(timezone.utc)
     with session_factory() as session:
         groceries = session.query(Category).filter_by(name="Groceries").one()
-        merchant = session.query(Merchant).filter_by(name=merchant_key).one_or_none()
-        if merchant is None:
-            merchant = Merchant(name=merchant_key, display_name=merchant_key.title(), category_id=groceries.id)
-            session.add(merchant)
-            session.flush()
+        merchant_id = None
+        if with_merchant:
+            merchant = session.query(Merchant).filter_by(name=merchant_key).one_or_none()
+            if merchant is None:
+                merchant = Merchant(
+                    name=merchant_key,
+                    display_name=merchant_key.title(),
+                    category_id=groceries.id,
+                )
+                session.add(merchant)
+                session.flush()
+            merchant_id = merchant.id
         tx = Transaction(
             ts=ts,
             amount_cents=amount_cents,
             type="EXPENSE",
-            merchant_id=merchant.id,
+            merchant_id=merchant_id,
             category_id=groceries.id,
-            notes=None,
+            notes=notes,
             source=source,
             source_update_id=1 if source == "message" else None,
         )
@@ -145,3 +161,32 @@ def test_edit_text_rejects_future_date(session_factory):
     tx_id = _add_expense(session_factory)
     reply = edit_text(session_factory, "Europe/Berlin", tx_id, "date", "2099-01-01")
     assert reply == "That date is in the future."
+
+
+def test_find_text_matches_merchant_case_insensitive(session_factory):
+    _add_expense(session_factory, merchant_key="rewe")
+    text = find_text(session_factory, "Europe/Berlin", "REWE")
+    assert "Rewe" in text
+    assert text.startswith("#")
+
+
+def test_find_text_matches_notes(session_factory):
+    _add_expense(session_factory, with_merchant=False, notes="airport coffee")
+    text = find_text(session_factory, "Europe/Berlin", "coffee")
+    assert "airport coffee" in text
+
+
+def test_find_text_empty_query_usage(session_factory):
+    assert find_text(session_factory, "Europe/Berlin", "   ") == FIND_USAGE
+
+
+def test_find_text_no_matches(session_factory):
+    _add_expense(session_factory)
+    assert find_text(session_factory, "Europe/Berlin", "zzzz") == "No matches for 'zzzz'."
+
+
+def test_find_text_caps_at_find_max(session_factory):
+    for i in range(FIND_MAX + 5):
+        _add_expense(session_factory, merchant_key=f"shop{i}", amount_cents=100 + i)
+    text = find_text(session_factory, "Europe/Berlin", "Shop")
+    assert len(text.splitlines()) == FIND_MAX

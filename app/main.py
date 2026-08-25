@@ -10,11 +10,11 @@ from telegram.ext import Application, ApplicationBuilder, ContextTypes
 from app.telegram_io import telegram_send
 
 from app.analytics import format_cents
-from app.backup import create_snapshot, encrypt_file, prune_snapshots
+from app.backup import create_snapshot, encrypt_file, prune_snapshots, stale_backup_message
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker, init_db, make_engine
 from app.handlers import register_bot_commands, register_handlers
-from app.recurring import load_recurring_rules, run_recurring_check
+from app.recurring import load_recurring_rules, missed_recurring_rules, run_recurring_check
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,44 @@ async def backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         prune_snapshots(snapshot_dir, keep=7)
 
 
+async def backup_health_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.bot_data["settings"]
+    snapshot_dir = str(Path(settings.db_path).parent)
+    message = stale_backup_message(snapshot_dir, tz_name=settings.timezone)
+    if message is None:
+        return
+    await telegram_send(
+        lambda: context.bot.send_message(
+            chat_id=settings.allowed_telegram_user_id,
+            text=message,
+        ),
+        context="backup health",
+    )
+
+
+async def missed_recurring_job(
+    context: ContextTypes.DEFAULT_TYPE, at: datetime | None = None
+) -> None:
+    session_factory = context.bot_data["session_factory"]
+    settings: Settings = context.bot_data["settings"]
+    with session_factory() as session:
+        missed = missed_recurring_rules(session, settings.timezone, at=at)
+        payload = [(rule.label, rule.day_of_month) for rule in missed]
+    if not payload:
+        return
+    text = (
+        "Recurring skipped this month (bot was down on their day — log manually if needed):\n"
+        + "\n".join(f"• {label} (day {day})" for label, day in payload)
+    )
+    await telegram_send(
+        lambda: context.bot.send_message(
+            chat_id=settings.allowed_telegram_user_id,
+            text=text,
+        ),
+        context="missed recurring",
+    )
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     if isinstance(context.error, NetworkError):
         logger.warning("Telegram network error while processing update: %s", context.error)
@@ -118,8 +156,8 @@ def build_application(settings: Settings, recurring_yaml_path: str = "recurring.
     # misfire_grace_time=None: APScheduler's default grace window is 1 second.
     # run_once(..., when=0) targets "right now", so any startup delay past 1s
     # (normal — connecting to Telegram, etc.) causes the job to be silently
-    # skipped entirely instead of run late, only logging a warning. All three
-    # jobs are idempotent and safe to run whenever the process next gets to
+    # skipped entirely instead of run late, only logging a warning. All jobs
+    # here are idempotent and safe to run whenever the process next gets to
     # them, so none should ever be silently dropped for running late.
     unlimited_grace = {"misfire_grace_time": None}
     application.job_queue.run_daily(
@@ -131,11 +169,26 @@ def build_application(settings: Settings, recurring_yaml_path: str = "recurring.
     application.job_queue.run_once(
         recurring_job, when=0, name="recurring_check_startup", job_kwargs=unlimited_grace
     )
+    application.job_queue.run_once(
+        missed_recurring_job,
+        when=0,
+        name="missed_recurring_startup",
+        job_kwargs=unlimited_grace,
+    )
     application.job_queue.run_daily(
         backup_job,
         time=_local_time(3, 30, settings.timezone),
         name="daily_backup",
         job_kwargs=unlimited_grace,
+    )
+    application.job_queue.run_daily(
+        backup_health_job,
+        time=_local_time(12, 0, settings.timezone),
+        name="backup_health",
+        job_kwargs=unlimited_grace,
+    )
+    application.job_queue.run_once(
+        backup_health_job, when=0, name="backup_health_startup", job_kwargs=unlimited_grace
     )
 
     return application

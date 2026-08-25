@@ -33,19 +33,24 @@ To work through:
 
 ## Deferred v1 features
 
-None currently — backdating and transaction management are specced for
-implementation. See
-`docs/superpowers/specs/2026-08-12-transaction-management-and-backdating-design.md`.
-
-Dropped permanently (not wanted):
-
-- Voice-note input via transcription.
-- Receipt photos via vision.
+None currently.
 
 ## Shipped after v1
 
+- **Reliability & ledger UX** (2026-08-25) — backup staleness alerts +
+  `/backup_status`, startup missed-recurring DMs, `/summary [YYYY-MM]`,
+  `/find`. Spec:
+  `docs/superpowers/specs/2026-08-25-reliability-and-ledger-ux-design.md`.
 - **Read-only stats website** (2026-08-11) — sibling `stats` compose service,
   HTTPS via barcheck Caddy (or nip.io fallback), live SQLite reads, Chart.js
   one-pager. Spec:
   `docs/superpowers/specs/2026-08-11-stats-website-design.md`.
 - **Refund type removed** (2026-08-12) — ledger is EXPENSE/INCOME only.
+- **Transaction management & backdating** (2026-08-12) — `/recent`, `/delete`,
+  `/edit`, message backdating. Spec:
+  `docs/superpowers/specs/2026-08-12-transaction-management-and-backdating-design.md`.
+
+Dropped permanently (not wanted):
+
+- Voice-note input via transcription.
+- Receipt photos via vision.

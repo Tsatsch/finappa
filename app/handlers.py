@@ -3,7 +3,9 @@ import csv
 import io
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from openai import OpenAI
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -17,6 +19,7 @@ from telegram.ext import (
 )
 
 from app.analytics import format_cents, format_summary_message, monthly_summary
+from app.backup import backup_status_text
 from app.telegram_io import telegram_send
 from app.categories import CategoryName
 from app.categorize import RecatError, find_matching_merchant, recat_merchant, resolve_category
@@ -26,22 +29,26 @@ from app.ledger import (
     EDIT_USAGE,
     delete_text,
     edit_text,
+    find_text,
     logged_item_line,
     recent_text,
     resolve_transaction_ts,
 )
+from app.config import Settings
 
 HELP_TEXT = (
     "Send a message describing one or more transactions, e.g. "
     '"30€ Rewe and 15€ fuel" or "yesterday 30€ Rewe".\n\n'
     "Commands:\n"
-    "/summary — this month's income, expenses, and net\n"
+    "/summary [YYYY-MM] — income, expenses, and net (default: this month)\n"
     "/recent [n] — list recent transactions with IDs (default 10)\n"
+    "/find <query> — search merchants and notes\n"
     "/delete <id> — remove one transaction\n"
     "/edit <id> amount|category|date <value> — fix a transaction\n"
     "/undo — remove the last message's transactions\n"
     "/export — CSV of all transactions\n"
     "/recat <merchant> <category> — fix a merchant's category, past and future\n"
+    "/backup_status — newest local backup and config flags\n"
 )
 
 # Telegram's "/" suggestion menu (set via setMyCommands on startup). Keep in
@@ -50,14 +57,18 @@ HELP_TEXT = (
 BOT_COMMANDS = [
     BotCommand("start", "Show help and how to log transactions"),
     BotCommand("help", "Show help and how to log transactions"),
-    BotCommand("summary", "This month's income, expenses, and net"),
+    BotCommand("summary", "Month summary; optional YYYY-MM"),
     BotCommand("recent", "List recent transactions with IDs"),
+    BotCommand("find", "Search merchants and notes"),
     BotCommand("delete", "Remove one transaction by ID"),
     BotCommand("edit", "Fix amount, category, or date by ID"),
     BotCommand("undo", "Remove the last message's transactions"),
     BotCommand("export", "Download CSV of all transactions"),
     BotCommand("recat", "Fix a merchant's category, past and future"),
+    BotCommand("backup_status", "Newest local backup and config flags"),
 ]
+
+SUMMARY_USAGE = "Usage: /summary [YYYY-MM]"
 
 
 @dataclass
@@ -185,10 +196,41 @@ def _category_keyboard(pending_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def summary_text(session_factory, tz_name: str) -> str:
+def summary_text(session_factory, tz_name: str, month: str | None = None) -> str:
+    tz = ZoneInfo(tz_name)
+    now_local = datetime.now(tz)
+    if month is None:
+        with session_factory() as session:
+            return format_summary_message(monthly_summary(session, tz_name))
+    try:
+        year_s, month_s = month.split("-", 1)
+        if len(year_s) != 4 or len(month_s) != 2:
+            return SUMMARY_USAGE
+        year, mon = int(year_s), int(month_s)
+        if not 1 <= mon <= 12:
+            return SUMMARY_USAGE
+        target = date(year, mon, 1)
+    except (ValueError, TypeError):
+        return SUMMARY_USAGE
+    current = date(now_local.year, now_local.month, 1)
+    if target > current:
+        return "That month is in the future."
+    at = datetime(year, mon, 1, 12, 0, tzinfo=tz)
     with session_factory() as session:
-        summary = monthly_summary(session, tz_name)
-    return format_summary_message(summary)
+        body = format_summary_message(monthly_summary(session, tz_name, at=at))
+    if target == current:
+        return body
+    return f"Summary for {year:04d}-{mon:02d}:\n{body}"
+
+
+def backup_status_command_text(settings: Settings) -> str:
+    snapshot_dir = str(Path(settings.db_path).parent)
+    return backup_status_text(
+        snapshot_dir,
+        channel_configured=settings.backup_channel_id is not None,
+        key_configured=bool(settings.backup_encryption_key),
+        tz_name=settings.timezone,
+    )
 
 
 def undo_last(session_factory) -> str:
@@ -274,8 +316,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def handle_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    reply = summary_text(context.bot_data["session_factory"], context.bot_data["timezone"])
+    if context.args and len(context.args) > 1:
+        reply = SUMMARY_USAGE
+    else:
+        month = context.args[0] if context.args else None
+        reply = summary_text(
+            context.bot_data["session_factory"],
+            context.bot_data["timezone"],
+            month=month,
+        )
     await telegram_send(lambda: update.message.reply_text(reply), context="/summary")
+
+
+async def handle_backup_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    reply = backup_status_command_text(context.bot_data["settings"])
+    await telegram_send(lambda: update.message.reply_text(reply), context="/backup_status")
+
+
+async def handle_find(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = " ".join(context.args) if context.args else ""
+    reply = find_text(
+        context.bot_data["session_factory"],
+        context.bot_data["timezone"],
+        query,
+    )
+    await telegram_send(lambda: update.message.reply_text(reply), context="/find")
 
 
 async def handle_undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -409,6 +474,8 @@ def register_handlers(application: Application, allowed_user_id: int) -> None:
     application.add_handler(CommandHandler("start", handle_help, filters=user_filter))
     application.add_handler(CommandHandler("help", handle_help, filters=user_filter))
     application.add_handler(CommandHandler("summary", handle_summary, filters=user_filter))
+    application.add_handler(CommandHandler("find", handle_find, filters=user_filter))
+    application.add_handler(CommandHandler("backup_status", handle_backup_status, filters=user_filter))
     application.add_handler(CommandHandler("undo", handle_undo, filters=user_filter))
     application.add_handler(CommandHandler("export", handle_export, filters=user_filter))
     application.add_handler(CommandHandler("recat", handle_recat, filters=user_filter))

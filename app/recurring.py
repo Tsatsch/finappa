@@ -84,3 +84,40 @@ def run_recurring_check(
         fired.append(rule)
     session.commit()
     return fired
+
+
+def missed_recurring_rules(
+    session: Session, tz_name: str, at: datetime | None = None
+) -> list[RecurringRule]:
+    """Active rules whose day already passed this month with no ledger row.
+
+    Notify-only — never inserts. Exact-day fire remains in run_recurring_check.
+    """
+    now_utc = at or datetime.now(timezone.utc)
+    now_local = now_utc.astimezone(ZoneInfo(tz_name))
+    start_utc, end_utc = month_bounds_utc(tz_name, at=now_utc)
+    missed: list[RecurringRule] = []
+    for rule in session.query(RecurringRule).filter_by(active=True).all():
+        if rule.day_of_month >= now_local.day:
+            continue
+        already_logged = (
+            session.query(Transaction)
+            .filter(
+                Transaction.recurring_rule_id == rule.id,
+                Transaction.ts >= start_utc,
+                Transaction.ts < end_utc,
+            )
+            .first()
+        )
+        if already_logged is None:
+            missed.append(rule)
+    return missed
+
+
+def format_missed_recurring_message(rules: list[RecurringRule]) -> str:
+    lines = [
+        "Recurring skipped this month (bot was down on their day — log manually if needed):"
+    ]
+    for rule in rules:
+        lines.append(f"• {rule.label} (day {rule.day_of_month})")
+    return "\n".join(lines)

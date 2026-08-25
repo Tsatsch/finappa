@@ -146,6 +146,39 @@ def test_summary_text_reports_zero_on_empty_ledger(session_factory):
     assert "0,00 €" in text
 
 
+def test_summary_text_for_past_month(session_factory):
+    july = ts_from_local_date(date(2026, 7, 10), "Europe/Berlin")
+    with session_factory() as session:
+        groceries = session.query(Category).filter_by(name="Groceries").one()
+        session.add(
+            Transaction(
+                ts=july,
+                amount_cents=4200,
+                type="EXPENSE",
+                category_id=groceries.id,
+                notes="past",
+                source="message",
+                source_update_id=1,
+            )
+        )
+        session.commit()
+    text = summary_text(session_factory, "Europe/Berlin", month="2026-07")
+    assert text.startswith("Summary for 2026-07:")
+    assert "42,00" in text
+
+
+def test_summary_text_rejects_future_month(session_factory):
+    assert summary_text(session_factory, "Europe/Berlin", month="2099-01") == (
+        "That month is in the future."
+    )
+
+
+def test_summary_text_bad_format(session_factory):
+    assert summary_text(session_factory, "Europe/Berlin", month="2026-13") == (
+        "Usage: /summary [YYYY-MM]"
+    )
+
+
 def test_export_csv_contains_logged_transaction(session_factory):
     client = _stub_client(_item())
     process_message(session_factory, client, "gpt-4o-mini", "Europe/Berlin", "30€ Rewe", update_id=1)
@@ -331,7 +364,19 @@ async def test_register_bot_commands_sets_telegram_menu():
 
     application.bot.set_my_commands.assert_awaited_once_with(BOT_COMMANDS)
     command_names = {cmd.command for cmd in BOT_COMMANDS}
-    assert command_names == {"start", "help", "summary", "undo", "export", "recat"}
+    assert command_names == {
+        "start",
+        "help",
+        "summary",
+        "recent",
+        "find",
+        "delete",
+        "edit",
+        "undo",
+        "export",
+        "recat",
+        "backup_status",
+    }
 
 
 def test_process_message_backdated_item_lands_in_correct_month(session_factory):
@@ -351,14 +396,3 @@ def test_process_message_backdated_item_lands_in_correct_month(session_factory):
     with session_factory() as session:
         assert monthly_summary(session, "Europe/Berlin", at=july)["expense_cents"] == 3000
         assert monthly_summary(session, "Europe/Berlin", at=august)["expense_cents"] == 0
-
-
-async def test_register_bot_commands_sets_telegram_menu():
-    from app.handlers import BOT_COMMANDS, register_bot_commands
-
-    application = SimpleNamespace(bot=AsyncMock())
-    await register_bot_commands(application)
-
-    application.bot.set_my_commands.assert_awaited_once_with(BOT_COMMANDS)
-    command_names = {cmd.command for cmd in BOT_COMMANDS}
-    assert command_names == {"start", "help", "summary", "undo", "export", "recat"}
