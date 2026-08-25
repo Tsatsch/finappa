@@ -56,3 +56,45 @@ def test_foreign_key_enforcement_enabled(tmp_path):
             )
             session.add(invalid_transaction)
             session.flush()  # FK check happens on flush
+
+
+def test_merchant_alias_and_cleanup_tables_exist(tmp_path):
+    engine = make_engine(str(tmp_path / "test.db"))
+    init_db(engine)
+    with engine.connect() as conn:
+        names = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            )
+        }
+    assert "merchant_aliases" in names
+    assert "cleanup_rejections" in names
+    assert "cleanup_sessions" in names
+    assert "cleanup_session_merges" in names
+
+
+def test_cleanup_rejection_pair_unique(tmp_path):
+    from datetime import datetime, timezone
+
+    from app.db import CleanupRejection, get_sessionmaker
+
+    engine = make_engine(str(tmp_path / "test.db"))
+    init_db(engine)
+    Session = get_sessionmaker(engine)
+    now = datetime.now(timezone.utc)
+    with Session() as session:
+        session.add(
+            CleanupRejection(
+                left_normalized="a", right_normalized="b", created_at=now
+            )
+        )
+        session.commit()
+    with pytest.raises(IntegrityError):
+        with Session() as session:
+            session.add(
+                CleanupRejection(
+                    left_normalized="a", right_normalized="b", created_at=now
+                )
+            )
+            session.commit()

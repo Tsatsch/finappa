@@ -8,6 +8,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     event,
 )
@@ -67,6 +68,62 @@ class RecurringRule(Base):
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
     day_of_month: Mapped[int] = mapped_column(Integer, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class MerchantAlias(Base):
+    __tablename__ = "merchant_aliases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alias_normalized: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchants.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class CleanupRejection(Base):
+    __tablename__ = "cleanup_rejections"
+    __table_args__ = (
+        UniqueConstraint(
+            "left_normalized", "right_normalized", name="uq_cleanup_rejection_pair"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    left_normalized: Mapped[str] = mapped_column(String, nullable=False)
+    right_normalized: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class CleanupSession(Base):
+    __tablename__ = "cleanup_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CleanupSessionMerge(Base):
+    __tablename__ = "cleanup_session_merges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("cleanup_sessions.id"), nullable=False, index=True
+    )
+    canonical_merchant_id: Mapped[int] = mapped_column(
+        ForeignKey("merchants.id"), nullable=False
+    )
+    absorbed_normalized: Mapped[str] = mapped_column(String, nullable=False)
+    absorbed_display_name: Mapped[str] = mapped_column(String, nullable=False)
+    absorbed_category_id: Mapped[int] = mapped_column(
+        ForeignKey("categories.id"), nullable=False
+    )
+    alias_normalized: Mapped[str] = mapped_column(String, nullable=False)
+    tx_ids_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON list of ints
 
 
 def make_engine(db_path: str) -> Engine:
